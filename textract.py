@@ -303,6 +303,10 @@ def validar_y_multiplicar(df_clean: pd.DataFrame, config_path: str = 'config.jso
 
         # Buscar en todas las categorías
         for categoria, info in config.items():
+            # Saltar configuraciones que no sean categorías de productos
+            if not isinstance(info, dict) or 'variantes' not in info:
+                continue
+
             # Detectar formato del config.json
             if 'variantes' in info:
                 # Formato nuevo: múltiples variantes con diferentes multiplicadores
@@ -367,17 +371,18 @@ def validar_y_multiplicar(df_clean: pd.DataFrame, config_path: str = 'config.jso
     return df_final
 
 
-def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inventario_layout.xlsx') -> None:
+def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inventario_layout.xlsx', tipo_operacion: str = 'entrada') -> None:
     """
     Actualiza el archivo Inventario_layout.xlsx con las cantidades finales por categoría.
 
     Preserva TODO el estilo del Excel: bordes, colores, fuentes, espaciado, etc.
-    Busca la columna "entrada" en los encabezados y la fila con el nombre de la categoría,
+    Busca la columna especificada (entrada o salida) en los encabezados y la fila con el nombre de la categoría,
     luego coloca el valor en la intersección.
 
     Args:
         df_final: DataFrame con las cantidades finales por categoría
         layout_path: Ruta al archivo Inventario_layout.xlsx
+        tipo_operacion: 'entrada' o 'salida' - determina qué columna usar en el Excel
     """
     from openpyxl import load_workbook
     from copy import copy
@@ -390,16 +395,16 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
         # Agrupar por categoría y sumar cantidades finales
         cantidades_por_categoria = df_final.groupby('Categoria')['Cantidad_Final'].sum()
 
-        # Buscar la columna que contiene "entrada" en la primera fila (encabezados)
+        # Buscar la columna que contiene el tipo de operación en la primera fila (encabezados)
         col_entrada_idx = None
         for col_idx, col in enumerate(ws.iter_cols(min_row=1, max_row=1), start=1):
             cell_value = col[0].value
-            if cell_value and str(cell_value).lower().strip() == 'entrada':
+            if cell_value and str(cell_value).lower().strip() == tipo_operacion.lower():
                 col_entrada_idx = col_idx
                 break
 
         if col_entrada_idx is None:
-            print(f"  ! No se encontro la columna 'entrada' en {layout_path}")
+            print(f"  ! No se encontro la columna '{tipo_operacion}' en {layout_path}")
             return
 
         # Actualizar o crear filas para cada categoría
@@ -466,16 +471,14 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
 
 if __name__ == "__main__":
     # ==================== CONFIGURACIÓN ====================
-    # Comenta/Descomenta para elegir el modo de ejecución:
+    # Cargar configuración desde config.json
+    with open('config.json', 'r', encoding='utf-8') as f:
+        config = json.load(f)
 
-    # OPCIÓN 1: Extraer desde AWS Textract (usar primera vez o con nueva imagen)
-    USAR_AWS = False
+    USAR_AWS = config.get('USAR_AWS', False)
     #image_path = "WhatsApp Image 2025-11-04 at 10.35.29 PM (1).jpeg"
     image_path = "1 DE NOVIEMBRE 2025 (1).pdf"
     csv_path = "datos_raw.csv"
-
-    # OPCIÓN 2: Cargar desde CSV guardado (más rápido, sin costos AWS)
-    # USAR_AWS = False
     # =======================================================
 
     try:
@@ -558,7 +561,8 @@ if __name__ == "__main__":
         if not df_final.empty:
             print("\n" + "="*60)
             print("PASO 5: Actualizando Inventario_layout.xlsx...")
-            actualizar_inventario_layout(df_final, 'Inventario_layout.xlsx')
+            # Por defecto usa 'entrada' en el script standalone
+            actualizar_inventario_layout(df_final, 'Inventario_layout.xlsx', tipo_operacion='entrada')
 
             # Resumen
             print("\n" + "="*60)

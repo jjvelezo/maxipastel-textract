@@ -1,4 +1,5 @@
 {
+  "USAR_AWS": true,
   "Pasteles": {
     "variantes": [
       {
@@ -28,7 +29,7 @@
           "almojabana",
           "PANDEBONO KILO"
         ],
-        "multiplicador": 1
+        "multiplicador": 12
       }
     ]
   },
@@ -122,7 +123,7 @@
           "AGUA CRISTAL PLANA PET 300ML X24 S.PRECI",
           "AGUA CRISTAL PLANA PET 300ML X24 S."
         ],
-        "multiplicador": 24
+        "multiplicador": 1
       }
     ]
   },
@@ -151,7 +152,7 @@
           "COLOMBIANA 1.500 ML PET X 12 MOD",
           "UVA POST 1.500 ML PET X 12 P.E"
         ],
-        "multiplicador": 12
+        "multiplicador": 1
       }
     ]
   },
@@ -169,7 +170,7 @@
           "UVA POSTOBON 250 ML PET X 12",
           "TAMARINDO POSTOBON 250 ML PET X 12"
         ],
-        "multiplicador": 12
+        "multiplicador": 1
       }
     ]
   },
@@ -196,7 +197,7 @@
           "seven up 400",
           "SEVEN UP 400 ML PET X 15"
         ],
-        "multiplicador": 15
+        "multiplicador": 1
       },
       {
         "entrada": [
@@ -208,7 +209,7 @@
           "DURAZNO MR TEA 300 ML VIDRIO NR X 24",
           "LIMON CERO MR TEA 300 ML VIDRIO NR X 24"
         ],
-        "multiplicador": 24
+        "multiplicador": 1
       }
     ]
   },
@@ -218,7 +219,7 @@
         "entrada": [
           "AGUA CRISTAL 600 ML PET X 24"
         ],
-        "multiplicador": 24
+        "multiplicador": 1
       }
     ]
   },
@@ -233,13 +234,13 @@
           "ITORONCHELLO H2OH! 600 ML PET X15",
           "MANZANA H2OH 600 ML PET X 15"
         ],
-        "multiplicador": 15
+        "multiplicador": 1
       },
       {
         "entrada": [
           "MANZANA H2OH 600 ML PET X 24"
         ],
-        "multiplicador": 24
+        "multiplicador": 1
       }
     ]
   },
@@ -263,7 +264,7 @@
           "SALPICON TUTTI FRUTTI 250 ML VIDRIO R  X 30",
           "SALPICON TUTTI FRUTTI 250 ML VIDRIO R X 30"
         ],
-        "multiplicador": 30
+        "multiplicador": 1
       }
     ]
   },
@@ -278,7 +279,7 @@
           "NARANJA PINA HIT 200 ML TETRA X 24",
           "NARANJA PIÑA HIT 200 ML TETRA X 24"
         ],
-        "multiplicador": 24
+        "multiplicador": 1
       }
     ]
   },
@@ -289,7 +290,7 @@
           "FRUTAS TROPICAL. GATORADE 500 ML PET X 12",
           "FRUTAS TROPICALES GATORADE 500 ML PET X 12"
         ],
-        "multiplicador": 12
+        "multiplicador": 1
       }
     ]
   }
