@@ -97,8 +97,7 @@
       "brownieporcion",
       "brown ie porcion",
       "brownie porc",
-      "browni e porcion",
-      "brownie"
+      "browni e porcion"
     ],
     "multiplicador": 1
   },
@@ -110,6 +109,24 @@
       "rec orte",
       "recort e",
       "recort es"
+    ],
+    "multiplicador": 1
+  },
+  "Pan Chocobrownie": {
+    "entrada": [
+      "pan chocobrownie"
+    ],
+    "multiplicador": 1
+  },
+  "Lenguita De Hojaldre": {
+    "entrada": [
+      "lenguita de hojaldre"
+    ],
+    "multiplicador": 1
+  },
+  "Corazon Hojaldre": {
+    "entrada": [
+      "corazon hojaldre"
     ],
     "multiplicador": 1
   }

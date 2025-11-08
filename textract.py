@@ -172,6 +172,8 @@ def validar_y_multiplicar(df_clean: pd.DataFrame, config_path: str = 'config.jso
     Busca coincidencias entre el producto y las variantes de entrada definidas
     en config.json. Soporta múltiples variantes por categoría (case-insensitive).
 
+    Si encuentra un producto nuevo, lo agrega automáticamente al config.json.
+
     Args:
         df_clean: DataFrame limpio con Producto y Cantidad
         config_path: Ruta al archivo config.json
@@ -185,6 +187,7 @@ def validar_y_multiplicar(df_clean: pd.DataFrame, config_path: str = 'config.jso
 
     resultados = []
     productos_no_encontrados = []
+    config_modificado = False
 
     for _, row in df_clean.iterrows():
         producto = row['Producto']
@@ -219,22 +222,32 @@ def validar_y_multiplicar(df_clean: pd.DataFrame, config_path: str = 'config.jso
                 break
 
         if not encontrado:
-            # Producto sin categoría - no se multiplica
+            # Producto sin categoría - agregarlo al config.json
             productos_no_encontrados.append(producto)
+
+            # Crear nueva categoría con el nombre del producto
+            nueva_categoria = producto.title()  # Capitalizar cada palabra
+            config[nueva_categoria] = {
+                "entrada": [producto_normalizado],
+                "multiplicador": 1
+            }
+            config_modificado = True
+
+            print(f"  ➕ Nueva categoría agregada: '{nueva_categoria}'")
+
             resultados.append({
                 'Producto': producto,
                 'Cantidad_Original': cantidad,
                 'Multiplicador': 1,
                 'Cantidad_Final': cantidad,
-                'Categoria': 'Sin Categoria'
+                'Categoria': nueva_categoria
             })
 
-    # Mostrar productos no encontrados
-    if productos_no_encontrados:
-        print("\n⚠️  ADVERTENCIA: Productos sin categoría configurada:")
-        for prod in productos_no_encontrados:
-            print(f"   - {prod}")
-        print("\n   Sugerencia: Agregar estas variantes al config.json")
+    # Guardar config.json actualizado si hubo cambios
+    if config_modificado:
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+        print(f"\n✓ Config.json actualizado con {len(productos_no_encontrados)} nueva(s) categoría(s)")
 
     df_final = pd.DataFrame(resultados)
     return df_final
@@ -244,6 +257,7 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
     """
     Actualiza el archivo Inventario_layout.xlsx con las cantidades finales por categoría.
 
+    Preserva TODO el estilo del Excel: bordes, colores, fuentes, espaciado, etc.
     Busca la columna "entrada" en los encabezados y la fila con el nombre de la categoría,
     luego coloca el valor en la intersección.
 
@@ -251,21 +265,24 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
         df_final: DataFrame con las cantidades finales por categoría
         layout_path: Ruta al archivo Inventario_layout.xlsx
     """
+    from openpyxl import load_workbook
+    from copy import copy
+
     try:
-        # Leer el archivo de inventario (sin usar la primera fila como header)
-        df_inventario = pd.read_excel(layout_path, engine='openpyxl', header=None)
+        # Cargar el workbook existente para preservar estilos
+        wb = load_workbook(layout_path)
+        ws = wb.active
 
         # Agrupar por categoría y sumar cantidades finales
         cantidades_por_categoria = df_final.groupby('Categoria')['Cantidad_Final'].sum()
 
         # Buscar la columna que contiene "entrada" en la primera fila (encabezados)
         col_entrada_idx = None
-        for col_idx in range(len(df_inventario.columns)):
-            if pd.notna(df_inventario.iloc[0, col_idx]):
-                encabezado = str(df_inventario.iloc[0, col_idx]).lower().strip()
-                if encabezado == 'entrada':
-                    col_entrada_idx = col_idx
-                    break
+        for col_idx, col in enumerate(ws.iter_cols(min_row=1, max_row=1), start=1):
+            cell_value = col[0].value
+            if cell_value and str(cell_value).lower().strip() == 'entrada':
+                col_entrada_idx = col_idx
+                break
 
         if col_entrada_idx is None:
             print(f"  ⚠️  No se encontró la columna 'entrada' en {layout_path}")
@@ -278,28 +295,45 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
 
             # Buscar la fila que contiene el nombre de la categoría en la primera columna
             fila_encontrada = False
-            for fila_idx in range(len(df_inventario)):
-                # Verificar si la primera columna contiene el nombre de la categoría
-                if pd.notna(df_inventario.iloc[fila_idx, 0]):
-                    nombre_fila = str(df_inventario.iloc[fila_idx, 0]).strip()
-                    if nombre_fila == categoria:
-                        # Actualizar la celda en la intersección
-                        df_inventario.iloc[fila_idx, col_entrada_idx] = cantidad
-                        fila_encontrada = True
-                        print(f"  ✓ Actualizado '{categoria}': {cantidad}")
-                        break
+            for fila_idx, row in enumerate(ws.iter_rows(min_col=1, max_col=1), start=1):
+                cell_value = row[0].value
+                if cell_value and str(cell_value).strip() == categoria:
+                    # Actualizar la celda en la intersección
+                    target_cell = ws.cell(row=fila_idx, column=col_entrada_idx)
+                    target_cell.value = cantidad
+                    fila_encontrada = True
+                    print(f"  ✓ Actualizado '{categoria}': {cantidad}")
+                    break
 
             if not fila_encontrada:
-                # Crear nueva fila al final
-                nueva_fila = pd.Series([None] * len(df_inventario.columns))
-                nueva_fila.iloc[0] = categoria  # Nombre de la categoría
-                nueva_fila.iloc[col_entrada_idx] = cantidad  # Cantidad
-                df_inventario = pd.concat([df_inventario, nueva_fila.to_frame().T], ignore_index=True)
+                # Crear nueva fila al final preservando estilos de la fila anterior
+                ultima_fila = ws.max_row + 1
+
+                # Copiar estilos de la fila anterior si existe
+                if ws.max_row > 1:
+                    fila_anterior = ws.max_row
+                    for col_idx in range(1, ws.max_column + 1):
+                        celda_anterior = ws.cell(row=fila_anterior, column=col_idx)
+                        celda_nueva = ws.cell(row=ultima_fila, column=col_idx)
+
+                        # Copiar estilos (bordes, fuente, relleno, alineación)
+                        if celda_anterior.has_style:
+                            celda_nueva.font = copy(celda_anterior.font)
+                            celda_nueva.border = copy(celda_anterior.border)
+                            celda_nueva.fill = copy(celda_anterior.fill)
+                            celda_nueva.number_format = copy(celda_anterior.number_format)
+                            celda_nueva.protection = copy(celda_anterior.protection)
+                            celda_nueva.alignment = copy(celda_anterior.alignment)
+
+                # Asignar valores
+                ws.cell(row=ultima_fila, column=1).value = categoria
+                ws.cell(row=ultima_fila, column=col_entrada_idx).value = cantidad
                 print(f"  ✓ Creada nueva categoría '{categoria}': {cantidad}")
 
-        # Guardar el archivo actualizado (sin encabezados de pandas)
-        df_inventario.to_excel(layout_path, index=False, header=False, engine='openpyxl')
+        # Guardar el workbook preservando todos los estilos
+        wb.save(layout_path)
         print(f"\n✓ Inventario actualizado exitosamente: '{layout_path}'")
+        print("  (Se preservaron todos los bordes, colores y estilos del Excel)")
 
     except FileNotFoundError:
         print(f"\n⚠️  ADVERTENCIA: No se encontró el archivo '{layout_path}'")
