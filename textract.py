@@ -127,24 +127,24 @@ def limpiar_datos(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         DataFrame limpio con columnas 'Producto' y 'Cantidad'
     """
-    # Buscar columnas que contengan 'producto' o 'cantidad' (case insensitive)
     df_clean = df.copy()
 
     # Normalizar nombres de columnas
     df_clean.columns = df_clean.columns.str.strip().str.lower()
 
-    # Buscar columnas relevantes
-    producto_col = None
+    # Buscar columna de cantidad
     cantidad_col = None
 
     for col in df_clean.columns:
-        if 'producto' in col or 'descripcion' in col or 'item' in col:
-            producto_col = col
-        elif 'cantidad' in col or 'cant' in col or 'qty' in col:
+        if 'cantidad' in col or 'cant' in col or 'qty' in col:
             cantidad_col = col
+            break
 
-    if producto_col is None or cantidad_col is None:
-        raise ValueError("No se encontraron columnas de Producto o Cantidad en el DataFrame")
+    if cantidad_col is None:
+        raise ValueError("No se encontró columna de Cantidad en el DataFrame")
+
+    # Usar la primera columna como producto (sin importar su nombre)
+    producto_col = df_clean.columns[0]
 
     # Seleccionar solo esas columnas y renombrar
     df_clean = df_clean[[producto_col, cantidad_col]].copy()
@@ -154,7 +154,8 @@ def limpiar_datos(df: pd.DataFrame) -> pd.DataFrame:
     df_clean = df_clean.dropna(subset=['Producto', 'Cantidad'])
     df_clean = df_clean[df_clean['Producto'].str.strip() != '']
 
-    # Convertir cantidad a numérico
+    # Convertir cantidad a numérico (reemplazar comas por puntos primero)
+    df_clean['Cantidad'] = df_clean['Cantidad'].astype(str).str.replace(',', '.')
     df_clean['Cantidad'] = pd.to_numeric(df_clean['Cantidad'], errors='coerce')
     df_clean = df_clean.dropna(subset=['Cantidad'])
 
@@ -168,6 +169,9 @@ def validar_y_multiplicar(df_clean: pd.DataFrame, config_path: str = 'config.jso
     """
     Valida los productos contra config.json y multiplica las cantidades.
 
+    Busca coincidencias entre el producto y las variantes de entrada definidas
+    en config.json. Soporta múltiples variantes por categoría (case-insensitive).
+
     Args:
         df_clean: DataFrame limpio con Producto y Cantidad
         config_path: Ruta al archivo config.json
@@ -180,25 +184,57 @@ def validar_y_multiplicar(df_clean: pd.DataFrame, config_path: str = 'config.jso
         config = json.load(f)
 
     resultados = []
+    productos_no_encontrados = []
 
-    for categoria, info in config.items():
-        productos_config = info['entrada']
-        multiplicador = info['multiplicador']
+    for _, row in df_clean.iterrows():
+        producto = row['Producto']
+        cantidad = row['Cantidad']
+        producto_normalizado = producto.lower().strip()
 
-        for _, row in df_clean.iterrows():
-            producto = row['Producto']
-            cantidad = row['Cantidad']
+        encontrado = False
 
-            # Verificar si el producto está en la lista de productos configurados
-            if producto in productos_config:
-                cantidad_final = cantidad * multiplicador
-                resultados.append({
-                    'Producto': producto,
-                    'Cantidad_Original': cantidad,
-                    'Multiplicador': multiplicador,
-                    'Cantidad_Final': cantidad_final,
-                    'Categoria': categoria
-                })
+        # Buscar en todas las categorías
+        for categoria, info in config.items():
+            entradas = info['entrada']
+            multiplicador = info['multiplicador']
+
+            # Verificar si el producto coincide con alguna variante de entrada
+            for entrada in entradas:
+                entrada_normalizada = entrada.lower().strip()
+
+                if entrada_normalizada in producto_normalizado or producto_normalizado in entrada_normalizada:
+                    # Coincidencia encontrada
+                    cantidad_final = cantidad * multiplicador
+                    resultados.append({
+                        'Producto': producto,
+                        'Cantidad_Original': cantidad,
+                        'Multiplicador': multiplicador,
+                        'Cantidad_Final': cantidad_final,
+                        'Categoria': categoria
+                    })
+                    encontrado = True
+                    break
+
+            if encontrado:
+                break
+
+        if not encontrado:
+            # Producto sin categoría - no se multiplica
+            productos_no_encontrados.append(producto)
+            resultados.append({
+                'Producto': producto,
+                'Cantidad_Original': cantidad,
+                'Multiplicador': 1,
+                'Cantidad_Final': cantidad,
+                'Categoria': 'Sin Categoria'
+            })
+
+    # Mostrar productos no encontrados
+    if productos_no_encontrados:
+        print("\n⚠️  ADVERTENCIA: Productos sin categoría configurada:")
+        for prod in productos_no_encontrados:
+            print(f"   - {prod}")
+        print("\n   Sugerencia: Agregar estas variantes al config.json")
 
     df_final = pd.DataFrame(resultados)
     return df_final
@@ -209,7 +245,7 @@ if __name__ == "__main__":
     # Comenta/Descomenta para elegir el modo de ejecución:
 
     # OPCIÓN 1: Extraer desde AWS Textract (usar primera vez o con nueva imagen)
-    USAR_AWS = True
+    USAR_AWS = False
     image_path = "WhatsApp Image 2025-11-04 at 10.35.29 PM (1).jpeg"
     csv_path = "datos_raw.csv"
 
@@ -238,7 +274,7 @@ if __name__ == "__main__":
         else:
             # PASO 1B: Cargar desde CSV
             print(f"Cargando datos desde: {csv_path}")
-            df_raw = pd.read_csv(csv_path, encoding='utf-8-sig')
+            df_raw = pd.read_csv(csv_path, encoding='utf-8-sig', thousands=None, decimal='.')
             print("Datos cargados exitosamente")
 
         # Mostrar datos raw
@@ -269,13 +305,14 @@ if __name__ == "__main__":
             print("\nDataFrame final:")
             print(df_final.to_string(index=False))
 
-            # PASO 4: Exportar a Excel
-            print("\n" + "="*60)
-            print("PASO 4: Exportando a Excel...")
-            output_file = 'productos_final.xlsx'
-            df_final.to_excel(output_file, index=False, engine='openpyxl')
-            print(f"\nArchivo exportado exitosamente: '{output_file}'")
+        # PASO 4: Exportar a Excel (siempre exportar, incluso si está vacío)
+        print("\n" + "="*60)
+        print("PASO 4: Exportando a Excel...")
+        output_file = 'productos_final.xlsx'
+        df_final.to_excel(output_file, index=False, engine='openpyxl')
+        print(f"\nArchivo exportado exitosamente: '{output_file}'")
 
+        if not df_final.empty:
             # Resumen
             print("\n" + "="*60)
             print("RESUMEN:")
