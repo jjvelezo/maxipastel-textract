@@ -1,0 +1,26 @@
+{
+  "Pasteles": {
+    "entrada": [
+      "PASTEL RANCHERO X 6 UND",
+      "PASTEL POLLO VERDURA X 6 UND",
+      "PASTEL CARNE VERDURA X 6 UND",
+      "PASTEL POLLO CHAMPIÑON X 6 UND",
+      "PASTEL QUESO X 6 UND",
+      "PASTEL DE AREQUIPE X 6 UND",
+      "PASTEL AREQUIPE Y QUESO X 6 UND",
+      "PASTEL DE GUAYABA X 6 UND",
+      "PASTEL GUAYABA Y QUESO X 6 UND",
+      "PASTEL GLORIA X 6 UND",
+      "PASTEL JAMON QUESO X 6 UND",
+      "PASTEL HAWAIANO X 6 UND",
+      "PASTEL BARBACOA X 6 UND",
+      "PASTEL DOBLE QUESO X 6 UND",
+      "PASTEL AMERICANO X 6 UND"
+    ],
+    "operacion": "suma",
+    "multiplicador": 6,
+    "salida": [
+      "pasteles"
+    ]
+  }
+}

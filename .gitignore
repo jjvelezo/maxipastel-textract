@@ -1,0 +1,68 @@
+# Entornos virtuales de Python
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# Archivos de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Claude AI
+.claude/
+.claude_code/
+claude_desktop_config.json
+.clauderc
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Archivos de configuración sensibles
+*.env
+.env.local
+.env.*.local
+
+# Archivos temporales
+*.log
+*.tmp
+*.temp
+.cache/
+
+# Archivos de sistema
+Thumbs.db
+desktop.ini
+
+# Archivos específicos del proyecto que no deberían subirse
+*.jpeg
+*.jpg
+*.png
+*.gif
+*.pdf
+*.xlsx
+*.xls
+*.docx
+*.doc
