@@ -172,7 +172,8 @@ def validar_y_multiplicar(df_clean: pd.DataFrame, config_path: str = 'config.jso
     Busca coincidencias entre el producto y las variantes de entrada definidas
     en config.json. Soporta múltiples variantes por categoría (case-insensitive).
 
-    Si encuentra un producto nuevo, lo agrega automáticamente al config.json.
+    Si encuentra un producto nuevo que no está en config.json, lo marca con
+    "(no registrado)" y usa multiplicador 1, pero NO lo agrega al config.json.
 
     Args:
         df_clean: DataFrame limpio con Producto y Cantidad
@@ -187,7 +188,6 @@ def validar_y_multiplicar(df_clean: pd.DataFrame, config_path: str = 'config.jso
 
     resultados = []
     productos_no_encontrados = []
-    config_modificado = False
 
     for _, row in df_clean.iterrows():
         producto = row['Producto']
@@ -222,32 +222,27 @@ def validar_y_multiplicar(df_clean: pd.DataFrame, config_path: str = 'config.jso
                 break
 
         if not encontrado:
-            # Producto sin categoría - agregarlo al config.json
+            # Producto sin categoría - NO agregarlo al config.json
+            # Solo registrarlo con formato "(no registrado)"
             productos_no_encontrados.append(producto)
 
-            # Crear nueva categoría con el nombre del producto
-            nueva_categoria = producto.title()  # Capitalizar cada palabra
-            config[nueva_categoria] = {
-                "entrada": [producto_normalizado],
-                "multiplicador": 1
-            }
-            config_modificado = True
+            # Crear categoría con formato especial para no registrados
+            categoria_no_registrada = f"{producto} (no registrado)"
 
-            print(f"  ➕ Nueva categoría agregada: '{nueva_categoria}'")
+            print(f"  ⚠️  Producto no registrado: '{producto}'")
 
             resultados.append({
                 'Producto': producto,
                 'Cantidad_Original': cantidad,
                 'Multiplicador': 1,
                 'Cantidad_Final': cantidad,
-                'Categoria': nueva_categoria
+                'Categoria': categoria_no_registrada
             })
 
-    # Guardar config.json actualizado si hubo cambios
-    if config_modificado:
-        with open(config_path, 'w', encoding='utf-8') as f:
-            json.dump(config, f, ensure_ascii=False, indent=2)
-        print(f"\n✓ Config.json actualizado con {len(productos_no_encontrados)} nueva(s) categoría(s)")
+    # Informar si hubo productos no registrados
+    if productos_no_encontrados:
+        print(f"\n⚠️  Se encontraron {len(productos_no_encontrados)} producto(s) no registrado(s) en config.json")
+        print("   Estos aparecerán con '(no registrado)' en el Excel")
 
     df_final = pd.DataFrame(resultados)
     return df_final
@@ -306,15 +301,21 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
                     break
 
             if not fila_encontrada:
-                # Crear nueva fila al final preservando estilos de la fila anterior
-                ultima_fila = ws.max_row + 1
+                # Encontrar la última fila con datos reales en la primera columna
+                ultima_fila_real = 1
+                for fila_idx in range(1, ws.max_row + 1):
+                    cell_value = ws.cell(row=fila_idx, column=1).value
+                    if cell_value and str(cell_value).strip():
+                        ultima_fila_real = fila_idx
+
+                # Crear nueva fila inmediatamente después del último producto
+                nueva_fila = ultima_fila_real + 1
 
                 # Copiar estilos de la fila anterior si existe
-                if ws.max_row > 1:
-                    fila_anterior = ws.max_row
+                if ultima_fila_real > 1:
                     for col_idx in range(1, ws.max_column + 1):
-                        celda_anterior = ws.cell(row=fila_anterior, column=col_idx)
-                        celda_nueva = ws.cell(row=ultima_fila, column=col_idx)
+                        celda_anterior = ws.cell(row=ultima_fila_real, column=col_idx)
+                        celda_nueva = ws.cell(row=nueva_fila, column=col_idx)
 
                         # Copiar estilos (bordes, fuente, relleno, alineación)
                         if celda_anterior.has_style:
@@ -326,8 +327,8 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
                             celda_nueva.alignment = copy(celda_anterior.alignment)
 
                 # Asignar valores
-                ws.cell(row=ultima_fila, column=1).value = categoria
-                ws.cell(row=ultima_fila, column=col_entrada_idx).value = cantidad
+                ws.cell(row=nueva_fila, column=1).value = categoria
+                ws.cell(row=nueva_fila, column=col_entrada_idx).value = cantidad
                 print(f"  ✓ Creada nueva categoría '{categoria}': {cantidad}")
 
         # Guardar el workbook preservando todos los estilos
