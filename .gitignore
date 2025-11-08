@@ -66,3 +66,15 @@ desktop.ini
 *.xls
 *.docx
 *.doc
+
+# Archivos backup y temporales del proyecto
+*.backup
+*.old
+*_backup.*
+*_old.*
+datos_raw*.csv
+config_simplificado*.json
+simplificar_config.py
+
+# Archivos de sistema Windows
+nul

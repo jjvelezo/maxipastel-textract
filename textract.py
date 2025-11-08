@@ -1,14 +1,17 @@
 import boto3
 import pandas as pd
 import json
+import re
 from typing import List, Dict
+from pathlib import Path
+import sys
 
 def extract_tables_from_image(image_path: str) -> List[pd.DataFrame]:
     """
-    Extrae tablas de una imagen usando Amazon Textract de forma eficiente.
+    Extrae tablas de una imagen o PDF usando Amazon Textract de forma eficiente.
 
     Args:
-        image_path: Ruta a la imagen local
+        image_path: Ruta a la imagen o PDF local
 
     Returns:
         Lista de DataFrames, uno por cada tabla encontrada
@@ -16,20 +19,70 @@ def extract_tables_from_image(image_path: str) -> List[pd.DataFrame]:
     # Inicializar cliente de Textract
     textract = boto3.client('textract')
 
-    # Leer imagen
-    with open(image_path, 'rb') as document:
-        image_bytes = document.read()
+    # Detectar si es PDF
+    file_extension = Path(image_path).suffix.lower()
 
-    # Llamar a Textract - solo feature TABLES para minimizar costos
-    response = textract.analyze_document(
-        Document={'Bytes': image_bytes},
-        FeatureTypes=['TABLES']  # Solo tablas, no FORMS ni QUERIES
-    )
+    all_dataframes = []
 
-    # Extraer tablas del response
-    dataframes = parse_tables(response)
+    if file_extension == '.pdf':
+        # Usar PyMuPDF para convertir PDF a imágenes (sin dependencias externas)
+        try:
+            import fitz  # PyMuPDF
+        except ImportError:
+            print("\nERROR: La libreria 'PyMuPDF' no esta instalada.")
+            print("Por favor instala: pip install PyMuPDF")
+            sys.exit(1)
 
-    return dataframes
+        # Convertir PDF a imágenes (una por página)
+        print("Convirtiendo PDF a imagenes...")
+        try:
+            pdf_document = fitz.open(image_path)
+            print(f"Se encontraron {len(pdf_document)} pagina(s)")
+
+            # Procesar cada página
+            for page_num in range(len(pdf_document)):
+                print(f"Procesando pagina {page_num + 1}/{len(pdf_document)}...")
+
+                # Obtener la página
+                page = pdf_document[page_num]
+
+                # Convertir página a imagen (matriz de píxeles)
+                pix = page.get_pixmap(dpi=300)
+
+                # Convertir a bytes PNG
+                image_bytes = pix.tobytes("png")
+
+                # Llamar a Textract
+                response = textract.analyze_document(
+                    Document={'Bytes': image_bytes},
+                    FeatureTypes=['TABLES']
+                )
+
+                # Extraer tablas de esta página
+                page_dataframes = parse_tables(response)
+                all_dataframes.extend(page_dataframes)
+
+            pdf_document.close()
+
+        except Exception as e:
+            print(f"\nERROR: No se pudo convertir el PDF: {str(e)}")
+            sys.exit(1)
+
+    else:
+        # Es una imagen normal (JPEG, PNG, etc.)
+        with open(image_path, 'rb') as document:
+            image_bytes = document.read()
+
+        # Llamar a Textract - solo feature TABLES para minimizar costos
+        response = textract.analyze_document(
+            Document={'Bytes': image_bytes},
+            FeatureTypes=['TABLES']  # Solo tablas, no FORMS ni QUERIES
+        )
+
+        # Extraer tablas del response
+        all_dataframes = parse_tables(response)
+
+    return all_dataframes
 
 
 def parse_tables(response: Dict) -> List[pd.DataFrame]:
@@ -143,8 +196,21 @@ def limpiar_datos(df: pd.DataFrame) -> pd.DataFrame:
     if cantidad_col is None:
         raise ValueError("No se encontró columna de Cantidad en el DataFrame")
 
-    # Usar la primera columna como producto (sin importar su nombre)
-    producto_col = df_clean.columns[0]
+    # Detectar si la primera columna es numérica (ID/Referencia)
+    # En ese caso, usar la segunda columna como producto
+    primera_col = df_clean.columns[0]
+
+    # Intentar convertir la primera columna a numérico y ver cuántos valores son válidos
+    valores_numericos = pd.to_numeric(df_clean[primera_col], errors='coerce')
+    porcentaje_numerico = valores_numericos.notna().sum() / len(df_clean)
+
+    # Si más del 70% de los valores en la primera columna son numéricos, usar la segunda columna
+    if porcentaje_numerico > 0.7 and len(df_clean.columns) > 1:
+        print(f"  * Primera columna '{primera_col}' es numerica ({porcentaje_numerico:.0%}), usando segunda columna como Producto")
+        producto_col = df_clean.columns[1]
+    else:
+        print(f"  * Usando primera columna '{primera_col}' como Producto")
+        producto_col = primera_col
 
     # Seleccionar solo esas columnas y renombrar
     df_clean = df_clean[[producto_col, cantidad_col]].copy()
@@ -152,6 +218,8 @@ def limpiar_datos(df: pd.DataFrame) -> pd.DataFrame:
 
     # Limpiar valores nulos y vacíos
     df_clean = df_clean.dropna(subset=['Producto', 'Cantidad'])
+    # Convertir Producto a string antes de usar .str accessor
+    df_clean['Producto'] = df_clean['Producto'].astype(str)
     df_clean = df_clean[df_clean['Producto'].str.strip() != '']
 
     # Convertir cantidad a numérico (reemplazar comas por puntos primero)
@@ -162,7 +230,39 @@ def limpiar_datos(df: pd.DataFrame) -> pd.DataFrame:
     # Limpiar espacios en producto
     df_clean['Producto'] = df_clean['Producto'].str.strip()
 
+    # Eliminar prefijos numéricos (1., 1-, 14.-, etc.) del inicio del nombre del producto
+    # Patrón: número(s) + punto/guión/espacio al inicio
+    df_clean['Producto'] = df_clean['Producto'].apply(
+        lambda x: re.sub(r'^\d+[\.\-\s]+[\|\s]*', '', x).strip()
+    )
+
+    # Eliminar prefijos de error de OCR (I, |, i) al inicio del producto
+    df_clean['Producto'] = df_clean['Producto'].apply(
+        lambda x: re.sub(r'^[I\|i]\s*', '', x).strip()
+    )
+
     return df_clean.reset_index(drop=True)
+
+
+def normalizar_texto(texto: str) -> str:
+    """
+    Normaliza un texto eliminando espacios, puntos, guiones y caracteres especiales.
+    Mantiene números y letras. Convierte todo a minúsculas para facilitar comparaciones.
+
+    Args:
+        texto: Texto a normalizar
+
+    Returns:
+        Texto normalizado (solo letras y números en minúsculas, sin espacios ni puntuación)
+    """
+    # Convertir a minúsculas
+    texto = texto.lower().strip()
+
+    # Eliminar puntos, guiones, espacios, y caracteres especiales comunes
+    # Mantener solo letras y números
+    texto_limpio = re.sub(r'[^a-záéíóúñ0-9]', '', texto)
+
+    return texto_limpio
 
 
 def validar_y_multiplicar(df_clean: pd.DataFrame, config_path: str = 'config.json') -> pd.DataFrame:
@@ -170,10 +270,15 @@ def validar_y_multiplicar(df_clean: pd.DataFrame, config_path: str = 'config.jso
     Valida los productos contra config.json y multiplica las cantidades.
 
     Busca coincidencias entre el producto y las variantes de entrada definidas
-    en config.json. Soporta múltiples variantes por categoría (case-insensitive).
+    en config.json usando normalización de texto (elimina espacios, puntos, números, etc.)
+    para hacer comparaciones más robustas.
 
     Si encuentra un producto nuevo que no está en config.json, lo marca con
     "(no registrado)" y usa multiplicador 1, pero NO lo agrega al config.json.
+
+    Soporta dos formatos de config.json:
+    - Formato antiguo: {"Categoria": {"entrada": [...], "multiplicador": X}}
+    - Formato nuevo: {"Categoria": {"variantes": [{"entrada": [...], "multiplicador": X}, ...]}}
 
     Args:
         df_clean: DataFrame limpio con Producto y Cantidad
@@ -192,30 +297,44 @@ def validar_y_multiplicar(df_clean: pd.DataFrame, config_path: str = 'config.jso
     for _, row in df_clean.iterrows():
         producto = row['Producto']
         cantidad = row['Cantidad']
-        producto_normalizado = producto.lower().strip()
+        producto_normalizado = normalizar_texto(producto)
 
         encontrado = False
 
         # Buscar en todas las categorías
         for categoria, info in config.items():
-            entradas = info['entrada']
-            multiplicador = info['multiplicador']
+            # Detectar formato del config.json
+            if 'variantes' in info:
+                # Formato nuevo: múltiples variantes con diferentes multiplicadores
+                variantes = info['variantes']
+            else:
+                # Formato antiguo: una sola variante (retrocompatibilidad)
+                variantes = [{'entrada': info['entrada'], 'multiplicador': info['multiplicador']}]
 
-            # Verificar si el producto coincide con alguna variante de entrada
-            for entrada in entradas:
-                entrada_normalizada = entrada.lower().strip()
+            # Buscar en cada variante
+            for variante in variantes:
+                entradas = variante['entrada']
+                multiplicador = variante['multiplicador']
 
-                if entrada_normalizada in producto_normalizado or producto_normalizado in entrada_normalizada:
-                    # Coincidencia encontrada
-                    cantidad_final = cantidad * multiplicador
-                    resultados.append({
-                        'Producto': producto,
-                        'Cantidad_Original': cantidad,
-                        'Multiplicador': multiplicador,
-                        'Cantidad_Final': cantidad_final,
-                        'Categoria': categoria
-                    })
-                    encontrado = True
+                # Verificar si el producto coincide con alguna entrada
+                for entrada in entradas:
+                    entrada_normalizada = normalizar_texto(entrada)
+
+                    # Comparar textos normalizados
+                    if entrada_normalizada in producto_normalizado or producto_normalizado in entrada_normalizada:
+                        # Coincidencia encontrada
+                        cantidad_final = cantidad * multiplicador
+                        resultados.append({
+                            'Producto': producto,
+                            'Cantidad_Original': cantidad,
+                            'Multiplicador': multiplicador,
+                            'Cantidad_Final': cantidad_final,
+                            'Categoria': categoria
+                        })
+                        encontrado = True
+                        break
+
+                if encontrado:
                     break
 
             if encontrado:
@@ -229,7 +348,7 @@ def validar_y_multiplicar(df_clean: pd.DataFrame, config_path: str = 'config.jso
             # Crear categoría con formato especial para no registrados
             categoria_no_registrada = f"{producto} (no registrado)"
 
-            print(f"  ⚠️  Producto no registrado: '{producto}'")
+            print(f"  ! Producto no registrado: '{producto}'")
 
             resultados.append({
                 'Producto': producto,
@@ -241,7 +360,7 @@ def validar_y_multiplicar(df_clean: pd.DataFrame, config_path: str = 'config.jso
 
     # Informar si hubo productos no registrados
     if productos_no_encontrados:
-        print(f"\n⚠️  Se encontraron {len(productos_no_encontrados)} producto(s) no registrado(s) en config.json")
+        print(f"\n! Se encontraron {len(productos_no_encontrados)} producto(s) no registrado(s) en config.json")
         print("   Estos aparecerán con '(no registrado)' en el Excel")
 
     df_final = pd.DataFrame(resultados)
@@ -280,7 +399,7 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
                 break
 
         if col_entrada_idx is None:
-            print(f"  ⚠️  No se encontró la columna 'entrada' en {layout_path}")
+            print(f"  ! No se encontro la columna 'entrada' en {layout_path}")
             return
 
         # Actualizar o crear filas para cada categoría
@@ -297,7 +416,7 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
                     target_cell = ws.cell(row=fila_idx, column=col_entrada_idx)
                     target_cell.value = cantidad
                     fila_encontrada = True
-                    print(f"  ✓ Actualizado '{categoria}': {cantidad}")
+                    print(f"  + Actualizado '{categoria}': {cantidad}")
                     break
 
             if not fila_encontrada:
@@ -329,18 +448,18 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
                 # Asignar valores
                 ws.cell(row=nueva_fila, column=1).value = categoria
                 ws.cell(row=nueva_fila, column=col_entrada_idx).value = cantidad
-                print(f"  ✓ Creada nueva categoría '{categoria}': {cantidad}")
+                print(f"  + Creada nueva categoria '{categoria}': {cantidad}")
 
         # Guardar el workbook preservando todos los estilos
         wb.save(layout_path)
-        print(f"\n✓ Inventario actualizado exitosamente: '{layout_path}'")
+        print(f"\n+ Inventario actualizado exitosamente: '{layout_path}'")
         print("  (Se preservaron todos los bordes, colores y estilos del Excel)")
 
     except FileNotFoundError:
-        print(f"\n⚠️  ADVERTENCIA: No se encontró el archivo '{layout_path}'")
+        print(f"\n! ADVERTENCIA: No se encontro el archivo '{layout_path}'")
 
     except Exception as e:
-        print(f"\n❌ Error al actualizar inventario: {str(e)}")
+        print(f"\nX Error al actualizar inventario: {str(e)}")
         import traceback
         traceback.print_exc()
 
@@ -351,7 +470,8 @@ if __name__ == "__main__":
 
     # OPCIÓN 1: Extraer desde AWS Textract (usar primera vez o con nueva imagen)
     USAR_AWS = False
-    image_path = "WhatsApp Image 2025-11-04 at 10.35.29 PM (1).jpeg"
+    #image_path = "WhatsApp Image 2025-11-04 at 10.35.29 PM (1).jpeg"
+    image_path = "1 DE NOVIEMBRE 2025 (1).pdf"
     csv_path = "datos_raw.csv"
 
     # OPCIÓN 2: Cargar desde CSV guardado (más rápido, sin costos AWS)
@@ -371,7 +491,24 @@ if __name__ == "__main__":
                 exit(1)
 
             print(f"\nSe encontraron {len(dataframes)} tabla(s)")
-            df_raw = dataframes[0]
+
+            # Si hay múltiples tablas, filtrar y seleccionar la más grande
+            # (ignorar tablas pequeñas que son encabezados)
+            if len(dataframes) > 1:
+                print("Filtrando tablas (ignorando encabezados)...")
+                # Filtrar tablas con al menos 5 filas (probablemente son tablas de productos)
+                tablas_grandes = [df for df in dataframes if len(df) >= 5]
+
+                if tablas_grandes:
+                    # Tomar la tabla más grande
+                    df_raw = max(tablas_grandes, key=lambda df: len(df))
+                    print(f"Tabla seleccionada: {df_raw.shape[0]} filas x {df_raw.shape[1]} columnas")
+                else:
+                    # Si no hay tablas grandes, tomar la más grande disponible
+                    df_raw = max(dataframes, key=lambda df: len(df))
+                    print(f"Tabla seleccionada (sin filtro): {df_raw.shape[0]} filas x {df_raw.shape[1]} columnas")
+            else:
+                df_raw = dataframes[0]
 
             # Guardar CSV para reutilización
             df_raw.to_csv('datos_raw.csv', index=False, encoding='utf-8-sig')

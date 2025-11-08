@@ -1,115 +1,296 @@
 {
   "Pasteles": {
-    "entrada": [
-      "pastel",
-      "pasteles"
-    ],
-    "multiplicador": 6
+    "variantes": [
+      {
+        "entrada": [
+          "pastel"
+        ],
+        "multiplicador": 6
+      }
+    ]
   },
   "Palos": {
-    "entrada": [
-      "palo de queso",
-      "palodequeso",
-      "palod e queso",
-      "palode queso",
-      "palo dequeso",
-      "palo de ques",
-      "palo de que",
-      "palodeques",
-      "palodeque"
-    ],
-    "multiplicador": 10
+    "variantes": [
+      {
+        "entrada": [
+          "palo de queso",
+          "PALO DE QUESO X 10 UND"
+        ],
+        "multiplicador": 10
+      }
+    ]
   },
   "Almojábana": {
-    "entrada": [
-      "pandebono kilo",
-      "pandebonokilo",
-      "pande bono kilo",
-      "pandebonokilos",
-      "almojabana",
-      "almojábana"
-    ],
-    "multiplicador": 1
+    "variantes": [
+      {
+        "entrada": [
+          "pandebono kilo",
+          "almojabana",
+          "PANDEBONO KILO"
+        ],
+        "multiplicador": 1
+      }
+    ]
   },
   "Pan mantequilla": {
-    "entrada": [
-      "pan mantequilla",
-      "pan mozarella",
-      "panmantequilla",
-      "panm antequilla",
-      "pan manteq",
-      "pan mantequila",
-      "panmozarella",
-      "panm ozarella",
-      "pan mozarela",
-      "pan mozzarella"
-    ],
-    "multiplicador": 1
+    "variantes": [
+      {
+        "entrada": [
+          "pan mantequilla",
+          "pan mozarella",
+          "pan mozzarella",
+          "PAN MANTEQUILLA",
+          "PAN MOZARELLA"
+        ],
+        "multiplicador": 1
+      }
+    ]
   },
   "Pan chocolate": {
-    "entrada": [
-      "pan doble queso",
-      "pan chocolate",
-      "panchocolate",
-      "panc hocolate",
-      "pan chocol",
-      "pandoblequeso",
-      "pand oble queso",
-      "pan dobleq",
-      "pan doble ques"
-    ],
-    "multiplicador": 1
+    "variantes": [
+      {
+        "entrada": [
+          "pan doble queso",
+          "pan chocolate",
+          "PAN DOBLE QUESO",
+          "PAN CHOCOLATE"
+        ],
+        "multiplicador": 1
+      }
+    ]
   },
   "Tortas": {
-    "entrada": [
-      "torta",
-      "tortas",
-      "tort a",
-      "tort as"
-    ],
-    "multiplicador": 1
+    "variantes": [
+      {
+        "entrada": [
+          "torta"
+        ],
+        "multiplicador": 1
+      }
+    ]
   },
   "Alfajor": {
-    "entrada": [
-      "alfajores",
-      "alfajor",
-      "alfa jor",
-      "alfa jores",
-      "alfaj or",
-      "alfaj ores"
-    ],
-    "multiplicador": 1
+    "variantes": [
+      {
+        "entrada": [
+          "alfajor",
+          "ALFAJORES"
+        ],
+        "multiplicador": 1
+      }
+    ]
   },
   "Galleta": {
-    "entrada": [
-      "galletas chips",
-      "galleta chips",
-      "galletaschips",
-      "gallet as chips",
-      "galleta chip",
-      "galletas chip"
-    ],
-    "multiplicador": 1
+    "variantes": [
+      {
+        "entrada": [
+          "galletas chips",
+          "galleta chips",
+          "GALLETAS CHIPS"
+        ],
+        "multiplicador": 1
+      }
+    ]
   },
   "Brownie": {
-    "entrada": [
-      "brownie porcion",
-      "brownieporcion",
-      "brown ie porcion",
-      "brownie porc",
-      "browni e porcion"
-    ],
-    "multiplicador": 1
+    "variantes": [
+      {
+        "entrada": [
+          "brownie porcion",
+          "BROWNIE PORCION"
+        ],
+        "multiplicador": 1
+      }
+    ]
   },
   "Recorte": {
-    "entrada": [
-      "recortes",
-      "recorte",
-      "rec ortes",
-      "rec orte",
-      "recort e",
-      "recort es"
-    ],
-    "multiplicador": 1
+    "variantes": [
+      {
+        "entrada": [
+          "recorte",
+          "RECORTES"
+        ],
+        "multiplicador": 1
+      }
+    ]
+  },
+  "Vaso 7 oz cartón": {
+    "variantes": [
+      {
+        "entrada": [
+          "agua cristal plana pet 300",
+          "AGUA CRISTAL PLANA PET 300ML X24 S.PRECI",
+          "AGUA CRISTAL PLANA PET 300ML X24 S."
+        ],
+        "multiplicador": 24
+      }
+    ]
+  },
+  "Corazón": {
+    "variantes": [
+      {
+        "entrada": [
+          "LENGUITA DE HOJALDRE",
+          "CORAZON HOJALDRE"
+        ],
+        "multiplicador": 1
+      }
+    ]
+  },
+  "Gas 1.5 lt": {
+    "variantes": [
+      {
+        "entrada": [
+          "manzana post 1.5",
+          "pepsi si 1.5",
+          "pepsi 1.5",
+          "colombiana 1.5",
+          "uva post 1.5",
+          "MANZANA POST 1.500 ML PET X 12 MOD",
+          "PEPSI S.I 1.500 ML PET X 12 P.E",
+          "COLOMBIANA 1.500 ML PET X 12 MOD",
+          "UVA POST 1.500 ML PET X 12 P.E"
+        ],
+        "multiplicador": 12
+      }
+    ]
+  },
+  "Gas 250 ml": {
+    "variantes": [
+      {
+        "entrada": [
+          "COLOMBIANA NACIONAL 250 ML PET X 12",
+          "MANZANA POSTOBON 250 ML PET  X 12",
+          "MANZANA POSTOBON 250 ML PET X 12",
+          "NARANJA POSTOBON 250 ML PET X 12",
+          "PEPSI CERO 250 ML PET X 12",
+          "TORONJA POSTOBON PET 250 ML X 12",
+          "UVA POSTOBON 25O ML PET X 12",
+          "UVA POSTOBON 250 ML PET X 12",
+          "TAMARINDO POSTOBON 250 ML PET X 12"
+        ],
+        "multiplicador": 12
+      }
+    ]
+  },
+  "Gas 400 ml": {
+    "variantes": [
+      {
+        "entrada": [
+          "pepsi si 400",
+          "pepsi 400",
+          "PEPSI S.I 400ML PET X 15",
+          "manzana postobon 400",
+          "manzana post 400",
+          "MANZANA POSTOBON 400 ML PET X 15",
+          "uva postobon 400",
+          "uva post 400",
+          "UVA POSTOBON 400 ML PET X 15",
+          "colombiana nacional 400",
+          "colombiana nal 400",
+          "icolombiana nacional 400",
+          "COLOMBIANA NACIONAL 400 ML PET X 15",
+          "naranja postobon 400",
+          "naranja post 400",
+          "NARANJA POSTOBON 400 ML PET X 15",
+          "seven up 400",
+          "SEVEN UP 400 ML PET X 15"
+        ],
+        "multiplicador": 15
+      },
+      {
+        "entrada": [
+          "limon mr tea 300",
+          "durazno mr tea 300",
+          "idurazno mr tea 300",
+          "limon cero mr tea 300",
+          "LIMON MR TEA 300 ML VIDRIO NR X 24",
+          "DURAZNO MR TEA 300 ML VIDRIO NR X 24",
+          "LIMON CERO MR TEA 300 ML VIDRIO NR X 24"
+        ],
+        "multiplicador": 24
+      }
+    ]
+  },
+  "Agua": {
+    "variantes": [
+      {
+        "entrada": [
+          "AGUA CRISTAL 600 ML PET X 24"
+        ],
+        "multiplicador": 24
+      }
+    ]
+  },
+  "H2O": {
+    "variantes": [
+      {
+        "entrada": [
+          "LIMA LIMON H2OH! 600 ML PET X 15",
+          "LIMONATA H2OH! 600 ML PET X 15",
+          "MARACUYA H2OH! 600 ML PET X 15",
+          "TORONCHELLO H2OH! 600 ML PET X 15",
+          "ITORONCHELLO H2OH! 600 ML PET X15",
+          "MANZANA H2OH 600 ML PET X 15"
+        ],
+        "multiplicador": 15
+      },
+      {
+        "entrada": [
+          "MANZANA H2OH 600 ML PET X 24"
+        ],
+        "multiplicador": 24
+      }
+    ]
+  },
+  "Tutti botella": {
+    "variantes": [
+      {
+        "entrada": [
+          "BRETANA 250 ML VIDRIO R X 30",
+          "AVENA TUTTI FRUTTI 250 ML VIDRIO R  X 30",
+          "AVENA TUTTI FRUTTI 250 ML VIDRIO R X 30",
+          "GUAYABA TUTTI FRUTTI 250 ML VIDRIO R  X 30",
+          "GUAYABA TUTTI FRUTTI 250 ML VIDRIO R X 30",
+          "GUAYABA TUTTI FRUTTI 250 ML VIDRIO R X30",
+          "LULO TUTTI FRUTTI 250 ML VIDRIO R  X 30",
+          "LULO TUTTI FRUTTI 250 ML VIDRIO R X 30",
+          "LULO TUTTI FRUTTI 250 ML VIDRIO R X30",
+          "MANGO TUTTI FRUTTI 250 ML VIDRIO R  X 30",
+          "MANGO TUTTI FRUTTI 250 ML VIDRIO R X 30",
+          "MORA TUTTI FRUTTI 250 ML VIDRIO R  X 30",
+          "MORA TUTTI FRUTTI 250 ML VIDRIO R X 30",
+          "SALPICON TUTTI FRUTTI 250 ML VIDRIO R  X 30",
+          "SALPICON TUTTI FRUTTI 250 ML VIDRIO R X 30"
+        ],
+        "multiplicador": 30
+      }
+    ]
+  },
+  "Tutti caja": {
+    "variantes": [
+      {
+        "entrada": [
+          "FRUTAS TROPICALES HIT 200 ML TETRA  X 24",
+          "FRUTAS TROPICALES HIT 200 ML TETRA X 24",
+          "MANGO HIT 200 ML TETRA  X 24",
+          "MANGO HIT 200 ML TETRA X 24",
+          "NARANJA PINA HIT 200 ML TETRA X 24",
+          "NARANJA PIÑA HIT 200 ML TETRA X 24"
+        ],
+        "multiplicador": 24
+      }
+    ]
+  },
+  "Bolsas leche": {
+    "variantes": [
+      {
+        "entrada": [
+          "FRUTAS TROPICAL. GATORADE 500 ML PET X 12",
+          "FRUTAS TROPICALES GATORADE 500 ML PET X 12"
+        ],
+        "multiplicador": 12
+      }
+    ]
   }
 }
