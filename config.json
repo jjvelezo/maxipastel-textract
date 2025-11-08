@@ -6,7 +6,7 @@
     ],
     "multiplicador": 6
   },
-  "Palo de Queso": {
+  "Palos": {
     "entrada": [
       "palo de queso",
       "palodequeso",
@@ -19,5 +19,98 @@
       "palodeque"
     ],
     "multiplicador": 10
+  },
+  "Almojábana": {
+    "entrada": [
+      "pandebono kilo",
+      "pandebonokilo",
+      "pande bono kilo",
+      "pandebonokilos",
+      "almojabana",
+      "almojábana"
+    ],
+    "multiplicador": 1
+  },
+  "Pan mantequilla": {
+    "entrada": [
+      "pan mantequilla",
+      "pan mozarella",
+      "panmantequilla",
+      "panm antequilla",
+      "pan manteq",
+      "pan mantequila",
+      "panmozarella",
+      "panm ozarella",
+      "pan mozarela",
+      "pan mozzarella"
+    ],
+    "multiplicador": 1
+  },
+  "Pan chocolate": {
+    "entrada": [
+      "pan doble queso",
+      "pan chocolate",
+      "panchocolate",
+      "panc hocolate",
+      "pan chocol",
+      "pandoblequeso",
+      "pand oble queso",
+      "pan dobleq",
+      "pan doble ques"
+    ],
+    "multiplicador": 1
+  },
+  "Tortas": {
+    "entrada": [
+      "torta",
+      "tortas",
+      "tort a",
+      "tort as"
+    ],
+    "multiplicador": 1
+  },
+  "Alfajor": {
+    "entrada": [
+      "alfajores",
+      "alfajor",
+      "alfa jor",
+      "alfa jores",
+      "alfaj or",
+      "alfaj ores"
+    ],
+    "multiplicador": 1
+  },
+  "Galleta": {
+    "entrada": [
+      "galletas chips",
+      "galleta chips",
+      "galletaschips",
+      "gallet as chips",
+      "galleta chip",
+      "galletas chip"
+    ],
+    "multiplicador": 1
+  },
+  "Brownie": {
+    "entrada": [
+      "brownie porcion",
+      "brownieporcion",
+      "brown ie porcion",
+      "brownie porc",
+      "browni e porcion",
+      "brownie"
+    ],
+    "multiplicador": 1
+  },
+  "Recorte": {
+    "entrada": [
+      "recortes",
+      "recorte",
+      "rec ortes",
+      "rec orte",
+      "recort e",
+      "recort es"
+    ],
+    "multiplicador": 1
   }
 }

@@ -240,6 +240,76 @@ def validar_y_multiplicar(df_clean: pd.DataFrame, config_path: str = 'config.jso
     return df_final
 
 
+def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inventario_layout.xlsx') -> None:
+    """
+    Actualiza el archivo Inventario_layout.xlsx con las cantidades finales por categoría.
+
+    Busca la columna "entrada" en los encabezados y la fila con el nombre de la categoría,
+    luego coloca el valor en la intersección.
+
+    Args:
+        df_final: DataFrame con las cantidades finales por categoría
+        layout_path: Ruta al archivo Inventario_layout.xlsx
+    """
+    try:
+        # Leer el archivo de inventario (sin usar la primera fila como header)
+        df_inventario = pd.read_excel(layout_path, engine='openpyxl', header=None)
+
+        # Agrupar por categoría y sumar cantidades finales
+        cantidades_por_categoria = df_final.groupby('Categoria')['Cantidad_Final'].sum()
+
+        # Buscar la columna que contiene "entrada" en la primera fila (encabezados)
+        col_entrada_idx = None
+        for col_idx in range(len(df_inventario.columns)):
+            if pd.notna(df_inventario.iloc[0, col_idx]):
+                encabezado = str(df_inventario.iloc[0, col_idx]).lower().strip()
+                if encabezado == 'entrada':
+                    col_entrada_idx = col_idx
+                    break
+
+        if col_entrada_idx is None:
+            print(f"  ⚠️  No se encontró la columna 'entrada' en {layout_path}")
+            return
+
+        # Actualizar o crear filas para cada categoría
+        for categoria, cantidad in cantidades_por_categoria.items():
+            if categoria == 'Sin Categoria':
+                continue  # Ignorar productos sin categoría
+
+            # Buscar la fila que contiene el nombre de la categoría en la primera columna
+            fila_encontrada = False
+            for fila_idx in range(len(df_inventario)):
+                # Verificar si la primera columna contiene el nombre de la categoría
+                if pd.notna(df_inventario.iloc[fila_idx, 0]):
+                    nombre_fila = str(df_inventario.iloc[fila_idx, 0]).strip()
+                    if nombre_fila == categoria:
+                        # Actualizar la celda en la intersección
+                        df_inventario.iloc[fila_idx, col_entrada_idx] = cantidad
+                        fila_encontrada = True
+                        print(f"  ✓ Actualizado '{categoria}': {cantidad}")
+                        break
+
+            if not fila_encontrada:
+                # Crear nueva fila al final
+                nueva_fila = pd.Series([None] * len(df_inventario.columns))
+                nueva_fila.iloc[0] = categoria  # Nombre de la categoría
+                nueva_fila.iloc[col_entrada_idx] = cantidad  # Cantidad
+                df_inventario = pd.concat([df_inventario, nueva_fila.to_frame().T], ignore_index=True)
+                print(f"  ✓ Creada nueva categoría '{categoria}': {cantidad}")
+
+        # Guardar el archivo actualizado (sin encabezados de pandas)
+        df_inventario.to_excel(layout_path, index=False, header=False, engine='openpyxl')
+        print(f"\n✓ Inventario actualizado exitosamente: '{layout_path}'")
+
+    except FileNotFoundError:
+        print(f"\n⚠️  ADVERTENCIA: No se encontró el archivo '{layout_path}'")
+
+    except Exception as e:
+        print(f"\n❌ Error al actualizar inventario: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
+
 if __name__ == "__main__":
     # ==================== CONFIGURACIÓN ====================
     # Comenta/Descomenta para elegir el modo de ejecución:
@@ -312,7 +382,12 @@ if __name__ == "__main__":
         df_final.to_excel(output_file, index=False, engine='openpyxl')
         print(f"\nArchivo exportado exitosamente: '{output_file}'")
 
+        # PASO 5: Actualizar Inventario_layout.xlsx
         if not df_final.empty:
+            print("\n" + "="*60)
+            print("PASO 5: Actualizando Inventario_layout.xlsx...")
+            actualizar_inventario_layout(df_final, 'Inventario_layout.xlsx')
+
             # Resumen
             print("\n" + "="*60)
             print("RESUMEN:")
