@@ -208,34 +208,25 @@ def limpiar_datos_entrada(df: pd.DataFrame) -> pd.DataFrame:
     # Normalizar nombres de columnas
     df_clean.columns = df_clean.columns.str.strip().str.lower()
 
-    # Buscar columna de cantidad según tipo de operación
+    # Buscar columna de cantidad
     cantidad_col = None
 
-    if tipo_operacion == 'entrada':
-        # ENTRADA: Busca columna "Cantidad" explícitamente (pedidos con encabezado)
-        print("  * Modo ENTRADA: Buscando columna 'Cantidad'...")
-        for col in df_clean.columns:
-            col_lower = str(col).lower()
-            if 'cantidad' in col_lower or 'cant' in col_lower or 'qty' in col_lower or 'unid' in col_lower:
-                cantidad_col = col
-                print(f"  ✓ Columna de cantidad encontrada: '{col}'")
-                break
+    # ENTRADA: Busca columna "Cantidad" explícitamente (pedidos con encabezado)
+    print("  * Modo ENTRADA: Buscando columna 'Cantidad'...")
+    for col in df_clean.columns:
+        col_lower = str(col).lower()
+        if 'cantidad' in col_lower or 'cant' in col_lower or 'qty' in col_lower or 'unid' in col_lower:
+            cantidad_col = col
+            print(f"  ✓ Columna de cantidad encontrada: '{col}'")
+            break
 
-        if cantidad_col is None:
-            # Intentar usar la última columna como cantidad
-            if len(df_clean.columns) >= 2:
-                cantidad_col = df_clean.columns[-1]
-                print(f"  ! No se encontró 'Cantidad', usando última columna: '{cantidad_col}'")
-            else:
-                raise ValueError(f"No se encontró columna de Cantidad. Columnas: {list(df_clean.columns)}")
-    else:
-        # SALIDA: Toma automáticamente la segunda columna (facturas: valor al lado del producto)
-        print("  * Modo SALIDA (Factura): Usando segunda columna como cantidad...")
+    if cantidad_col is None:
+        # Intentar usar la última columna como cantidad
         if len(df_clean.columns) >= 2:
-            cantidad_col = df_clean.columns[1]  # Segunda columna (valor numérico)
-            print(f"  ✓ Usando columna '{cantidad_col}' como cantidad")
+            cantidad_col = df_clean.columns[-1]
+            print(f"  ! No se encontró 'Cantidad', usando última columna: '{cantidad_col}'")
         else:
-            raise ValueError(f"Factura debe tener al menos 2 columnas. Columnas: {list(df_clean.columns)}")
+            raise ValueError(f"No se encontró columna de Cantidad. Columnas: {list(df_clean.columns)}")
 
     # Detectar si la primera columna es numérica (ID/Referencia)
     # En ese caso, usar la segunda columna como producto
@@ -311,7 +302,16 @@ def limpiar_datos_salida(df: pd.DataFrame, config_path: str = 'config.json') -> 
     1. Carga productos válidos desde config.json campo "salida"
     2. Solo extrae líneas que coincidan con productos válidos
     3. Filtra datos irrelevantes (Beneficio, cajero, totales, etc.)
-    4. Usa normalización de texto para comparar productos
+    4. DETECCIÓN INTELIGENTE DE CANTIDAD:
+       - Busca en todas las columnas (segunda, tercera, etc.)
+       - CASO 1: Si la celda contiene múltiples números separados por espacios
+         Ejemplo: "294.800 30" o "57 182.100"
+         → Divide por espacios y busca el número ENTERO
+       - CASO 2: Si la celda contiene un solo número
+         → Verifica si es entero (cantidad) o decimal (precio)
+       - Identifica números ENTEROS como cantidad (67, 27, 30)
+       - Ignora números con decimales (precios: 294.800, 59.400)
+    5. Usa normalización de texto para comparar productos
 
     Returns:
         DataFrame con columnas: ['Producto', 'Cantidad']
@@ -352,8 +352,8 @@ def limpiar_datos_salida(df: pd.DataFrame, config_path: str = 'config.json') -> 
         if valores and 'plu' in valores[0].lower():
             continue
 
-        # Buscar producto en primera columna y cantidad en segunda
-        if len(valores) >= 2 and valores[0] and valores[1]:
+        # Buscar producto en primera columna
+        if len(valores) >= 2 and valores[0]:
             producto = valores[0]
             producto_normalizado = normalizar_texto(producto)
 
@@ -368,17 +368,60 @@ def limpiar_datos_salida(df: pd.DataFrame, config_path: str = 'config.json') -> 
                 productos_filtrados.append(producto)
                 continue
 
-            # Extraer cantidad
-            cantidad_str = valores[1].replace(',', '.')
-            try:
-                cantidad = float(cantidad_str)
-                if cantidad > 0:
-                    resultados.append({
-                        'Producto': producto,
-                        'Cantidad': cantidad
-                    })
-            except (ValueError, TypeError):
-                continue
+            # DETECCIÓN INTELIGENTE: Buscar la columna con números enteros
+            # La cantidad es un número entero (67, 27)
+            # El precio tiene decimales (294.800, 59.400)
+            cantidad = None
+
+            # Revisar columnas desde la segunda en adelante
+            for i in range(1, len(valores)):
+                if not valores[i]:
+                    continue
+
+                valor_celda = valores[i]
+
+                # CASO 1: La celda contiene múltiples números separados por espacios
+                # Ejemplo: "294.800 30" o "57 182.100"
+                if ' ' in valor_celda:
+                    # Dividir por espacios y buscar números
+                    partes = valor_celda.split()
+                    for parte in partes:
+                        parte_limpia = parte.replace(',', '.')
+                        try:
+                            num = float(parte_limpia)
+                            # Si es entero, es la cantidad
+                            if num > 0 and num == int(num):
+                                cantidad = int(num)
+                                break
+                        except (ValueError, TypeError):
+                            continue
+
+                    if cantidad is not None:
+                        break
+
+                # CASO 2: La celda contiene un solo número
+                else:
+                    valor_str = valor_celda.replace(',', '.')
+                    try:
+                        valor_num = float(valor_str)
+
+                        # Si es un número entero (sin decimales significativos)
+                        # Ejemplo: 67.0 == 67, pero 59.4 != 59
+                        if valor_num > 0 and valor_num == int(valor_num):
+                            cantidad = int(valor_num)
+                            break
+                    except (ValueError, TypeError):
+                        continue
+
+            # Si encontramos una cantidad válida, agregar el resultado
+            if cantidad is not None and cantidad > 0:
+                resultados.append({
+                    'Producto': producto,
+                    'Cantidad': cantidad
+                })
+            else:
+                # Debug: mostrar qué valores se encontraron
+                print(f"  ! No se encontró cantidad entera para '{producto}': valores = {valores[1:]}")
 
     if productos_filtrados:
         productos_unicos = list(set(productos_filtrados))[:5]
@@ -545,7 +588,7 @@ def validar_y_multiplicar_salida(df_clean: pd.DataFrame, config_path: str = 'con
                     salida_normalizada = normalizar_texto(salida)
                     if salida_normalizada in producto_normalizado or producto_normalizado in salida_normalizada:
                         resultados.append({
-                            'Producto': producto,
+                            'Producto': producto,  # Mantener el nombre original de la factura
                             'Cantidad_Original': cantidad,
                             'Multiplicador': 1,
                             'Cantidad_Final': cantidad,

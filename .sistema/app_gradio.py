@@ -123,6 +123,18 @@ def process_file(files, tipo_operacion, inventario_inicial, fecha_inventario):
 
         df_combined = pd.concat(all_results, ignore_index=True)
 
+        # ELIMINAR duplicados por categoría (tomar solo el primero)
+        status_msg += "  → Eliminando productos duplicados...\n"
+        productos_antes = len(df_combined)
+
+        # Eliminar duplicados manteniendo solo el primer valor encontrado
+        df_combined = df_combined.drop_duplicates(subset=['Categoria'], keep='first')
+
+        productos_eliminados = productos_antes - len(df_combined)
+        if productos_eliminados > 0:
+            status_msg += f"  ✓ {productos_eliminados} productos duplicados eliminados\n"
+        status_msg += f"  ✓ {len(df_combined)} productos únicos\n"
+
         # Exportar a Excel temporal
         output_file = Path(__file__).parent / 'productos_final.xlsx'
         df_combined.to_excel(output_file, index=False, engine='openpyxl')
