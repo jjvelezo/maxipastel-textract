@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 import gradio as gr
 import pandas as pd
+from datetime import datetime
 from textract import (
     extract_tables_from_image,
     limpiar_datos,
@@ -12,27 +13,52 @@ from textract import (
 
 def load_config():
     """Carga la configuración desde config.json"""
-    with open('config.json', 'r', encoding='utf-8') as f:
+    config_path = Path(__file__).parent / 'config.json'
+    with open(config_path, 'r', encoding='utf-8') as f:
         return json.load(f)
 
 
-def process_file(files, tipo_operacion):
+def process_file(files, tipo_operacion, inventario_inicial, fecha_inventario):
     """Procesa los archivos subidos y retorna los resultados"""
     if files is None or len(files) == 0:
         return (
-            "⚠️ Por favor, carga al menos un archivo",
+            "⚠️ Por favor, carga al menos un archivo (imagen/PDF del pedido)",
             None,
             "0",
             "0",
-            "0"
+            "0",
+            None
+        )
+
+    if inventario_inicial is None:
+        return (
+            "⚠️ Por favor, carga el archivo de inventario inicial",
+            None,
+            "0",
+            "0",
+            "0",
+            None
+        )
+
+    if not fecha_inventario:
+        return (
+            "⚠️ Por favor, selecciona una fecha en el calendario",
+            None,
+            "0",
+            "0",
+            "0",
+            None
         )
 
     try:
         config = load_config()
         use_aws = config.get('USAR_AWS', False)
 
+        # Obtener ruta base del proyecto (directorio padre de .sistema)
+        base_path = Path(__file__).parent.parent
+
         # Crear carpeta de uploads
-        Path('uploads').mkdir(exist_ok=True)
+        (base_path / 'uploads').mkdir(exist_ok=True)
 
         status_msg = "⏳ Iniciando procesamiento...\n\n"
 
@@ -43,7 +69,7 @@ def process_file(files, tipo_operacion):
             status_msg += f"📄 Procesando: {file_name}\n"
 
             # Copiar archivo a uploads
-            upload_path = Path('uploads') / file_name
+            upload_path = base_path / 'uploads' / file_name
             if str(file_path) != str(upload_path):
                 import shutil
                 shutil.copy2(file_path, upload_path)
@@ -63,21 +89,24 @@ def process_file(files, tipo_operacion):
                 else:
                     df_raw = dataframes[0]
 
-                df_raw.to_csv('datos_raw.csv', index=False, encoding='utf-8-sig')
+                csv_path = Path(__file__).parent / 'datos_raw.csv'
+                df_raw.to_csv(csv_path, index=False, encoding='utf-8-sig')
                 status_msg += f"  ✓ Extraídas {len(dataframes)} tabla(s)\n"
             else:
                 status_msg += "  → Cargando desde CSV...\n"
-                df_raw = pd.read_csv('datos_raw.csv', encoding='utf-8-sig')
+                csv_path = Path(__file__).parent / 'datos_raw.csv'
+                df_raw = pd.read_csv(csv_path, encoding='utf-8-sig')
                 status_msg += "  ✓ Datos cargados\n"
 
-            # Limpiar datos
+            # Limpiar datos (diferente según tipo de operación)
             status_msg += "  → Limpiando datos...\n"
-            df_clean = limpiar_datos(df_raw)
+            df_clean = limpiar_datos(df_raw, tipo_operacion=tipo_operacion.lower())
             status_msg += f"  ✓ {len(df_clean)} productos encontrados\n"
 
             # Validar y multiplicar
             status_msg += "  → Validando productos...\n"
-            df_final = validar_y_multiplicar(df_clean, 'config.json')
+            config_path = Path(__file__).parent / 'config.json'
+            df_final = validar_y_multiplicar(df_clean, str(config_path), tipo_operacion=tipo_operacion.lower())
             status_msg += f"  ✓ {len(df_final)} productos validados\n\n"
 
             all_results.append(df_final)
@@ -94,15 +123,41 @@ def process_file(files, tipo_operacion):
 
         df_combined = pd.concat(all_results, ignore_index=True)
 
-        # Exportar a Excel
-        output_file = 'productos_final.xlsx'
+        # Exportar a Excel temporal
+        output_file = Path(__file__).parent / 'productos_final.xlsx'
         df_combined.to_excel(output_file, index=False, engine='openpyxl')
-        status_msg += f"💾 Exportado a: {output_file}\n"
+        status_msg += f"💾 Productos procesados temporalmente\n"
+
+        # Generar nombre de archivo de inventario con fecha en formato DD_MM_YYYY
+        # Parsear la fecha del calendario (viene en formato ISO: YYYY-MM-DD o YYYY-MM-DD HH:MM:SS)
+        try:
+            if ' ' in fecha_inventario:
+                fecha_obj = datetime.strptime(fecha_inventario.split()[0], '%Y-%m-%d')
+            else:
+                fecha_obj = datetime.strptime(fecha_inventario, '%Y-%m-%d')
+            fecha_formateada = fecha_obj.strftime('%d_%m_%Y')
+        except:
+            # Si falla, usar la fecha actual
+            fecha_formateada = datetime.now().strftime('%d_%m_%Y')
+
+        # Obtener ruta de Descargas del usuario
+        import os
+        descargas_path = Path.home() / 'Downloads'
+        inventario_output = descargas_path / f'inventario_{fecha_formateada}.xlsx'
 
         # Actualizar inventario
         if not df_combined.empty:
-            actualizar_inventario_layout(df_combined, 'Inventario_layout.xlsx', tipo_operacion=tipo_operacion.lower())
-            status_msg += f"💾 Inventario actualizado ({tipo_operacion}): Inventario_layout.xlsx\n"
+            result_path = actualizar_inventario_layout(
+                df_combined,
+                inventario_inicial,
+                tipo_operacion=tipo_operacion.lower(),
+                output_path=str(inventario_output)
+            )
+            if result_path:
+                # Mostrar ruta de Descargas
+                status_msg += f"💾 Inventario guardado en Descargas: inventario_{fecha_formateada}.xlsx\n"
+            else:
+                status_msg += f"⚠️ Error al guardar inventario\n"
 
         status_msg += "\n✅ PROCESAMIENTO COMPLETADO"
 
@@ -115,12 +170,16 @@ def process_file(files, tipo_operacion):
         df_display = df_combined[['Producto', 'Cantidad_Original', 'Multiplicador', 'Cantidad_Final', 'Categoria']].copy()
         df_display.columns = ['Producto', 'Cantidad', 'Multiplicador', 'Total', 'Categoría']
 
+        # Retornar ruta de Descargas
+        ruta_amigable = f"Descargas/inventario_{fecha_formateada}.xlsx"
+
         return (
             status_msg,
             df_display,
             num_productos,
             cantidad_original,
-            cantidad_final
+            cantidad_final,
+            ruta_amigable
         )
 
     except FileNotFoundError as e:
@@ -129,7 +188,8 @@ def process_file(files, tipo_operacion):
             None,
             "",
             "",
-            ""
+            "",
+            None
         )
     except Exception as e:
         import traceback
@@ -139,7 +199,8 @@ def process_file(files, tipo_operacion):
             None,
             "",
             "",
-            ""
+            "",
+            None
         )
 
 
@@ -484,11 +545,30 @@ with gr.Blocks(css=custom_css, theme=gr.themes.Base()) as demo:
         with gr.Row():
             # Columna izquierda
             with gr.Column(scale=1):
-                # Upload
-                gr.HTML('<div class="section-title">📤 CARGAR ARCHIVOS</div>')
+                # Upload inventario inicial
+                gr.HTML('<div class="section-title">📊 ARCHIVO DE INVENTARIO INICIAL</div>')
+                with gr.Group(elem_classes="upload-section"):
+                    inventario_input = gr.File(
+                        label="Sube tu archivo de inventario actual (.xlsx)",
+                        file_count="single",
+                        file_types=[".xlsx"],
+                        elem_classes="file-upload"
+                    )
+
+                # Campo de fecha - Calendario
+                gr.HTML('<div class="section-title" style="margin-top: 1.5rem;">📅 FECHA DEL INVENTARIO</div>')
+                with gr.Group(elem_classes="upload-section"):
+                    fecha_input = gr.DateTime(
+                        label="Selecciona la fecha del inventario",
+                        include_time=False,
+                        type="string"
+                    )
+
+                # Upload pedidos
+                gr.HTML('<div class="section-title" style="margin-top: 1.5rem;">📤 ARCHIVOS DE PEDIDOS</div>')
                 with gr.Group(elem_classes="upload-section"):
                     file_input = gr.File(
-                        label="Arrastra archivos aquí o haz clic",
+                        label="Arrastra imágenes/PDFs de pedidos aquí",
                         file_count="multiple",
                         file_types=[".pdf", ".jpg", ".jpeg", ".png"],
                         elem_classes="file-upload"
@@ -534,6 +614,14 @@ with gr.Blocks(css=custom_css, theme=gr.themes.Base()) as demo:
                     elem_classes="dataframe"
                 )
 
+                # Archivo generado
+                gr.HTML('<div class="section-title" style="margin-top: 2rem;">📥 ARCHIVO GENERADO</div>')
+                archivo_generado = gr.Textbox(
+                    label="Inventario actualizado guardado en:",
+                    interactive=False,
+                    lines=2
+                )
+
     # Event handler para mostrar contenido al seleccionar operación
     def mostrar_contenido(operacion):
         """Muestra el contenido principal cuando se selecciona una operación"""
@@ -548,27 +636,30 @@ with gr.Blocks(css=custom_css, theme=gr.themes.Base()) as demo:
     )
 
     # Event handler
-    def update_stats(status, table, n_prod, cant_orig, cant_final):
+    def update_stats(status, table, n_prod, cant_orig, cant_final, archivo):
         """Actualiza las estadísticas con HTML"""
         n_prod_html = f'<div class="stat-value">{n_prod}</div>'
         cant_orig_html = f'<div class="stat-value">{cant_orig}</div>'
         cant_final_html = f'<div class="stat-value">{cant_final}</div>'
-        return status, table, n_prod_html, cant_orig_html, cant_final_html
+        return status, table, n_prod_html, cant_orig_html, cant_final_html, archivo
 
     process_btn.click(
         fn=process_file,
-        inputs=[file_input, tipo_operacion],
-        outputs=[status_output, results_table, num_productos, cantidad_original, cantidad_final]
+        inputs=[file_input, tipo_operacion, inventario_input, fecha_input],
+        outputs=[status_output, results_table, num_productos, cantidad_original, cantidad_final, archivo_generado]
     ).then(
         fn=update_stats,
-        inputs=[status_output, results_table, num_productos, cantidad_original, cantidad_final],
-        outputs=[status_output, results_table, num_productos, cantidad_original, cantidad_final]
+        inputs=[status_output, results_table, num_productos, cantidad_original, cantidad_final, archivo_generado],
+        outputs=[status_output, results_table, num_productos, cantidad_original, cantidad_final, archivo_generado]
     )
 
 
 if __name__ == "__main__":
-    # Crear carpeta de uploads
-    Path('uploads').mkdir(exist_ok=True)
+    # Obtener ruta base del proyecto
+    base_path = Path(__file__).parent.parent
+
+    # Crear carpeta uploads
+    (base_path / 'uploads').mkdir(exist_ok=True)
 
     # Lanzar aplicación
     demo.launch(

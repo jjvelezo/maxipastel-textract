@@ -58,7 +58,7 @@ echo "La aplicación se abrirá en tu navegador automáticamente."
 echo "Para cerrar la aplicación, cierra esta ventana o presiona Ctrl+C"
 echo ""
 
-python3 app_gradio.py
+python3 .sistema/app_gradio.py
 
 if [ $? -ne 0 ]; then
     echo ""

@@ -170,39 +170,98 @@ def get_cell_text(cell: Dict, block_map: Dict) -> str:
     return text.strip()
 
 
-def limpiar_datos(df: pd.DataFrame) -> pd.DataFrame:
+def limpiar_datos(df: pd.DataFrame, tipo_operacion: str = 'entrada') -> pd.DataFrame:
     """
-    Limpia el DataFrame dejando solo columnas de Producto y Cantidad.
+    Redirige a la función correcta según el tipo de operación.
 
     Args:
         df: DataFrame raw extraído de la imagen
+        tipo_operacion: 'entrada' o 'salida'
 
     Returns:
         DataFrame limpio con columnas 'Producto' y 'Cantidad'
+    """
+    if tipo_operacion.lower() == 'salida':
+        config_path = Path(__file__).parent / 'config.json'
+        return limpiar_datos_salida(df, str(config_path))
+    else:
+        return limpiar_datos_entrada(df)
+
+
+def limpiar_datos_entrada(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Limpia el DataFrame para ENTRADA (pedidos).
+
+    COMPORTAMIENTO:
+    1. Busca columna de cantidad (palabras clave: 'cantidad', 'cant', 'qty')
+    2. Detecta si primera columna es ID numérico (>70% valores numéricos)
+       - Si es numérico: usa segunda columna como producto
+       - Si no: usa primera columna como producto
+    3. Elimina filas vacías y convierte cantidades a números
+    4. Limpia prefijos del producto
+
+    Returns:
+        DataFrame con columnas: ['Producto', 'Cantidad']
     """
     df_clean = df.copy()
 
     # Normalizar nombres de columnas
     df_clean.columns = df_clean.columns.str.strip().str.lower()
 
-    # Buscar columna de cantidad
+    # Buscar columna de cantidad según tipo de operación
     cantidad_col = None
 
-    for col in df_clean.columns:
-        if 'cantidad' in col or 'cant' in col or 'qty' in col:
-            cantidad_col = col
-            break
+    if tipo_operacion == 'entrada':
+        # ENTRADA: Busca columna "Cantidad" explícitamente (pedidos con encabezado)
+        print("  * Modo ENTRADA: Buscando columna 'Cantidad'...")
+        for col in df_clean.columns:
+            col_lower = str(col).lower()
+            if 'cantidad' in col_lower or 'cant' in col_lower or 'qty' in col_lower or 'unid' in col_lower:
+                cantidad_col = col
+                print(f"  ✓ Columna de cantidad encontrada: '{col}'")
+                break
 
-    if cantidad_col is None:
-        raise ValueError("No se encontró columna de Cantidad en el DataFrame")
+        if cantidad_col is None:
+            # Intentar usar la última columna como cantidad
+            if len(df_clean.columns) >= 2:
+                cantidad_col = df_clean.columns[-1]
+                print(f"  ! No se encontró 'Cantidad', usando última columna: '{cantidad_col}'")
+            else:
+                raise ValueError(f"No se encontró columna de Cantidad. Columnas: {list(df_clean.columns)}")
+    else:
+        # SALIDA: Toma automáticamente la segunda columna (facturas: valor al lado del producto)
+        print("  * Modo SALIDA (Factura): Usando segunda columna como cantidad...")
+        if len(df_clean.columns) >= 2:
+            cantidad_col = df_clean.columns[1]  # Segunda columna (valor numérico)
+            print(f"  ✓ Usando columna '{cantidad_col}' como cantidad")
+        else:
+            raise ValueError(f"Factura debe tener al menos 2 columnas. Columnas: {list(df_clean.columns)}")
 
     # Detectar si la primera columna es numérica (ID/Referencia)
     # En ese caso, usar la segunda columna como producto
+    if len(df_clean.columns) == 0:
+        raise ValueError(f"El DataFrame no tiene columnas después de normalizar. DataFrame original tenía: {list(df.columns)}")
+
+    if len(df_clean) == 0:
+        raise ValueError(f"El DataFrame no tiene filas después de cargar. Verifica que la imagen tenga contenido.")
+
     primera_col = df_clean.columns[0]
 
     # Intentar convertir la primera columna a numérico y ver cuántos valores son válidos
-    valores_numericos = pd.to_numeric(df_clean[primera_col], errors='coerce')
-    porcentaje_numerico = valores_numericos.notna().sum() / len(df_clean)
+    try:
+        primera_col_data = df_clean[primera_col]
+        if primera_col_data is None or len(primera_col_data) == 0:
+            print(f"  ! ADVERTENCIA: Primera columna '{primera_col}' está vacía")
+            porcentaje_numerico = 0
+        else:
+            valores_numericos = pd.to_numeric(primera_col_data, errors='coerce')
+            porcentaje_numerico = valores_numericos.notna().sum() / len(df_clean) if len(df_clean) > 0 else 0
+    except Exception as e:
+        print(f"  ! Error al analizar primera columna: {e}")
+        print(f"  ! Columnas: {list(df_clean.columns)}")
+        print(f"  ! Primeras filas del DataFrame:")
+        print(df_clean.head())
+        porcentaje_numerico = 0
 
     # Si más del 70% de los valores en la primera columna son numéricos, usar la segunda columna
     if porcentaje_numerico > 0.7 and len(df_clean.columns) > 1:
@@ -244,6 +303,103 @@ def limpiar_datos(df: pd.DataFrame) -> pd.DataFrame:
     return df_clean.reset_index(drop=True)
 
 
+def limpiar_datos_salida(df: pd.DataFrame, config_path: str = 'config.json') -> pd.DataFrame:
+    """
+    Limpia el DataFrame de salida (ventas) filtrando solo productos válidos.
+
+    COMPORTAMIENTO CRÍTICO:
+    1. Carga productos válidos desde config.json campo "salida"
+    2. Solo extrae líneas que coincidan con productos válidos
+    3. Filtra datos irrelevantes (Beneficio, cajero, totales, etc.)
+    4. Usa normalización de texto para comparar productos
+
+    Returns:
+        DataFrame con columnas: ['Producto', 'Cantidad']
+    """
+    # Cargar productos válidos
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+
+    productos_validos_salida = set()
+    for categoria, info in config.items():
+        if not isinstance(info, dict) or 'variantes' not in info:
+            continue
+        for variante in info['variantes']:
+            salidas = variante.get('salida', [])
+            for salida in salidas:
+                productos_validos_salida.add(normalizar_texto(salida))
+
+    if not productos_validos_salida:
+        raise ValueError("No se encontraron productos de salida válidos en config.json")
+
+    print(f"  * Cargados {len(productos_validos_salida)} productos válidos de salida")
+
+    df_clean = df.copy()
+    if len(df_clean.columns) > 0:
+        df_clean.columns = df_clean.columns.astype(str).str.strip().str.lower()
+
+    resultados = []
+    productos_filtrados = []
+
+    for idx, row in df_clean.iterrows():
+        # Convertir toda la fila a lista de strings
+        valores = [str(v).strip() if pd.notna(v) else '' for v in row.values]
+
+        if not any(valores):
+            continue
+
+        # Saltar encabezados con "plu"
+        if valores and 'plu' in valores[0].lower():
+            continue
+
+        # Buscar producto en primera columna y cantidad en segunda
+        if len(valores) >= 2 and valores[0] and valores[1]:
+            producto = valores[0]
+            producto_normalizado = normalizar_texto(producto)
+
+            # FILTRO: verificar si es producto válido
+            es_producto_valido = False
+            for producto_config in productos_validos_salida:
+                if producto_normalizado in producto_config or producto_config in producto_normalizado:
+                    es_producto_valido = True
+                    break
+
+            if not es_producto_valido:
+                productos_filtrados.append(producto)
+                continue
+
+            # Extraer cantidad
+            cantidad_str = valores[1].replace(',', '.')
+            try:
+                cantidad = float(cantidad_str)
+                if cantidad > 0:
+                    resultados.append({
+                        'Producto': producto,
+                        'Cantidad': cantidad
+                    })
+            except (ValueError, TypeError):
+                continue
+
+    if productos_filtrados:
+        productos_unicos = list(set(productos_filtrados))[:5]
+        print(f"  * Filtrados {len(productos_filtrados)} datos no-inventario: {', '.join(productos_unicos)}...")
+
+    if not resultados:
+        raise ValueError("No se encontraron productos válidos en los datos de salida")
+
+    df_final = pd.DataFrame(resultados)
+    df_final['Producto'] = df_final['Producto'].str.strip()
+    df_final['Producto'] = df_final['Producto'].apply(
+        lambda x: re.sub(r'^\d+[\.\-\s]+[\|\s]*', '', x).strip()
+    )
+    df_final['Producto'] = df_final['Producto'].apply(
+        lambda x: re.sub(r'^[I\|i]\s*', '', x).strip()
+    )
+
+    print(f"  ✓ Procesados {len(df_final)} productos de salida (ventas)")
+    return df_final.reset_index(drop=True)
+
+
 def normalizar_texto(texto: str) -> str:
     """
     Normaliza un texto eliminando espacios, puntos, guiones y caracteres especiales.
@@ -265,29 +421,31 @@ def normalizar_texto(texto: str) -> str:
     return texto_limpio
 
 
-def validar_y_multiplicar(df_clean: pd.DataFrame, config_path: str = 'config.json') -> pd.DataFrame:
+def validar_y_multiplicar(df_clean: pd.DataFrame, config_path: str = 'config.json', tipo_operacion: str = 'entrada') -> pd.DataFrame:
     """
-    Valida los productos contra config.json y multiplica las cantidades.
+    Redirige a la función correcta según el tipo de operación.
+    """
+    if tipo_operacion.lower() == 'salida':
+        return validar_y_multiplicar_salida(df_clean, config_path)
+    else:
+        return validar_y_multiplicar_entrada(df_clean, config_path)
 
-    Busca coincidencias entre el producto y las variantes de entrada definidas
-    en config.json usando normalización de texto (elimina espacios, puntos, números, etc.)
-    para hacer comparaciones más robustas.
 
-    Si encuentra un producto nuevo que no está en config.json, lo marca con
-    "(no registrado)" y usa multiplicador 1, pero NO lo agrega al config.json.
+def validar_y_multiplicar_entrada(df_clean: pd.DataFrame, config_path: str = 'config.json') -> pd.DataFrame:
+    """
+    Valida productos contra config.json y MULTIPLICA las cantidades.
 
-    Soporta dos formatos de config.json:
-    - Formato antiguo: {"Categoria": {"entrada": [...], "multiplicador": X}}
-    - Formato nuevo: {"Categoria": {"variantes": [{"entrada": [...], "multiplicador": X}, ...]}}
-
-    Args:
-        df_clean: DataFrame limpio con Producto y Cantidad
-        config_path: Ruta al archivo config.json
+    COMPORTAMIENTO:
+    1. Busca cada producto en el campo "entrada" de config.json
+    2. Usa normalización de texto para comparar
+    3. MULTIPLICA la cantidad por el multiplicador definido
+       Ejemplo: 2 cajas × multiplicador 12 = 24 unidades
+    4. Productos no encontrados: marca como "(no registrado)" con multiplicador 1
 
     Returns:
-        DataFrame final con productos validados y cantidades multiplicadas
+        DataFrame con columnas:
+        ['Producto', 'Cantidad_Original', 'Multiplicador', 'Cantidad_Final', 'Categoria']
     """
-    # Cargar configuración
     with open(config_path, 'r', encoding='utf-8') as f:
         config = json.load(f)
 
@@ -298,35 +456,20 @@ def validar_y_multiplicar(df_clean: pd.DataFrame, config_path: str = 'config.jso
         producto = row['Producto']
         cantidad = row['Cantidad']
         producto_normalizado = normalizar_texto(producto)
-
         encontrado = False
 
-        # Buscar en todas las categorías
         for categoria, info in config.items():
-            # Saltar configuraciones que no sean categorías de productos
             if not isinstance(info, dict) or 'variantes' not in info:
                 continue
 
-            # Detectar formato del config.json
-            if 'variantes' in info:
-                # Formato nuevo: múltiples variantes con diferentes multiplicadores
-                variantes = info['variantes']
-            else:
-                # Formato antiguo: una sola variante (retrocompatibilidad)
-                variantes = [{'entrada': info['entrada'], 'multiplicador': info['multiplicador']}]
-
-            # Buscar en cada variante
+            variantes = info['variantes']
             for variante in variantes:
-                entradas = variante['entrada']
+                entradas = variante.get('entrada', [])
                 multiplicador = variante['multiplicador']
 
-                # Verificar si el producto coincide con alguna entrada
                 for entrada in entradas:
                     entrada_normalizada = normalizar_texto(entrada)
-
-                    # Comparar textos normalizados
                     if entrada_normalizada in producto_normalizado or producto_normalizado in entrada_normalizada:
-                        # Coincidencia encontrada
                         cantidad_final = cantidad * multiplicador
                         resultados.append({
                             'Producto': producto,
@@ -337,23 +480,15 @@ def validar_y_multiplicar(df_clean: pd.DataFrame, config_path: str = 'config.jso
                         })
                         encontrado = True
                         break
-
                 if encontrado:
                     break
-
             if encontrado:
                 break
 
         if not encontrado:
-            # Producto sin categoría - NO agregarlo al config.json
-            # Solo registrarlo con formato "(no registrado)"
             productos_no_encontrados.append(producto)
-
-            # Crear categoría con formato especial para no registrados
             categoria_no_registrada = f"{producto} (no registrado)"
-
             print(f"  ! Producto no registrado: '{producto}'")
-
             resultados.append({
                 'Producto': producto,
                 'Cantidad_Original': cantidad,
@@ -362,18 +497,88 @@ def validar_y_multiplicar(df_clean: pd.DataFrame, config_path: str = 'config.jso
                 'Categoria': categoria_no_registrada
             })
 
-    # Informar si hubo productos no registrados
     if productos_no_encontrados:
         print(f"\n! Se encontraron {len(productos_no_encontrados)} producto(s) no registrado(s) en config.json")
-        print("   Estos aparecerán con '(no registrado)' en el Excel")
 
-    df_final = pd.DataFrame(resultados)
-    return df_final
+    return pd.DataFrame(resultados)
 
 
-def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inventario_layout.xlsx', tipo_operacion: str = 'entrada') -> None:
+def validar_y_multiplicar_salida(df_clean: pd.DataFrame, config_path: str = 'config.json') -> pd.DataFrame:
     """
-    Actualiza el archivo Inventario_layout.xlsx con las cantidades finales por categoría.
+    Valida productos de salida contra config.json SIN multiplicar cantidades.
+
+    COMPORTAMIENTO:
+    1. Busca cada producto en el campo "salida" de config.json
+    2. Usa normalización de texto para comparar
+    3. NO MULTIPLICA la cantidad (siempre multiplicador = 1)
+       Las ventas ya vienen en unidades individuales
+    4. Productos no encontrados: marca como "(no registrado)"
+
+    Returns:
+        DataFrame con columnas:
+        ['Producto', 'Cantidad_Original', 'Multiplicador', 'Cantidad_Final', 'Categoria']
+        Nota: Multiplicador siempre es 1, Cantidad_Final = Cantidad_Original
+    """
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+
+    resultados = []
+    productos_no_encontrados = []
+
+    for _, row in df_clean.iterrows():
+        producto = row['Producto']
+        cantidad = row['Cantidad']
+        producto_normalizado = normalizar_texto(producto)
+        encontrado = False
+
+        for categoria, info in config.items():
+            if not isinstance(info, dict) or 'variantes' not in info:
+                continue
+
+            variantes = info['variantes']
+            for variante in variantes:
+                salidas = variante.get('salida', [])
+                if not salidas:
+                    continue
+
+                for salida in salidas:
+                    salida_normalizada = normalizar_texto(salida)
+                    if salida_normalizada in producto_normalizado or producto_normalizado in salida_normalizada:
+                        resultados.append({
+                            'Producto': producto,
+                            'Cantidad_Original': cantidad,
+                            'Multiplicador': 1,
+                            'Cantidad_Final': cantidad,
+                            'Categoria': categoria
+                        })
+                        encontrado = True
+                        break
+                if encontrado:
+                    break
+            if encontrado:
+                break
+
+        if not encontrado:
+            productos_no_encontrados.append(producto)
+            categoria_no_registrada = f"{producto} (no registrado)"
+            print(f"  ! Producto de salida no registrado: '{producto}'")
+            resultados.append({
+                'Producto': producto,
+                'Cantidad_Original': cantidad,
+                'Multiplicador': 1,
+                'Cantidad_Final': cantidad,
+                'Categoria': categoria_no_registrada
+            })
+
+    if productos_no_encontrados:
+        print(f"\n! Se encontraron {len(productos_no_encontrados)} producto(s) de salida no registrado(s)")
+
+    return pd.DataFrame(resultados)
+
+
+def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inventario_layout.xlsx', tipo_operacion: str = 'entrada', output_path: str = None) -> str:
+    """
+    Actualiza el archivo de inventario con las cantidades finales por categoría.
 
     Preserva TODO el estilo del Excel: bordes, colores, fuentes, espaciado, etc.
     Busca la columna especificada (entrada o salida) en los encabezados y la fila con el nombre de la categoría,
@@ -381,16 +586,83 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
 
     Args:
         df_final: DataFrame con las cantidades finales por categoría
-        layout_path: Ruta al archivo Inventario_layout.xlsx
+        layout_path: Ruta al archivo de inventario inicial (subido por el usuario)
         tipo_operacion: 'entrada' o 'salida' - determina qué columna usar en el Excel
+        output_path: Ruta donde guardar el archivo actualizado. Si es None, sobrescribe layout_path
+
+    Returns:
+        Ruta del archivo guardado
     """
     from openpyxl import load_workbook
     from copy import copy
 
     try:
-        # Cargar el workbook existente para preservar estilos
-        wb = load_workbook(layout_path)
+        # Cargar el workbook existente
+        wb_original = load_workbook(layout_path, data_only=False, keep_vba=False)
+        ws_original = wb_original.active
+
+        # Cargar también con data_only para intentar obtener valores
+        wb_valores = load_workbook(layout_path, data_only=True, keep_vba=False)
+        ws_valores = wb_valores.active
+
+        # Crear workbook nuevo para resultado final
+        wb = load_workbook(layout_path, data_only=False, keep_vba=False)
         ws = wb.active
+
+        # Buscar columnas que contienen "Inv Final" o columna G
+        print("  → Identificando columnas con fórmulas a preservar...")
+        columnas_con_formulas = set()
+
+        # Buscar en la primera fila (encabezados)
+        for col_idx in range(1, ws.max_column + 1):
+            header_cell = ws.cell(row=1, column=col_idx)
+            if header_cell.value:
+                header_text = str(header_cell.value).lower().strip()
+                # Si contiene "inv final" o "inventario final"
+                if 'inv' in header_text and 'final' in header_text:
+                    columnas_con_formulas.add(col_idx)
+                    print(f"  ✓ Columna {col_idx} ('{header_cell.value}') mantendrá fórmulas")
+            # Columna G (índice 7)
+            if col_idx == 7:
+                columnas_con_formulas.add(col_idx)
+                print(f"  ✓ Columna G (índice {col_idx}) mantendrá fórmulas")
+
+        # Convertir fórmulas a valores EXCEPTO en las columnas identificadas
+        print("  → Convirtiendo fórmulas a valores (excepto columnas especiales)...")
+        formulas_convertidas = 0
+        formulas_preservadas = 0
+
+        for row_idx in range(1, ws.max_row + 1):
+            for col_idx in range(1, ws.max_column + 1):
+                cell = ws.cell(row=row_idx, column=col_idx)
+                cell_valor = ws_valores.cell(row=row_idx, column=col_idx)
+
+                # Si la celda tiene una fórmula
+                if isinstance(cell.value, str) and cell.value.startswith('='):
+                    # Si está en una columna que debe preservar fórmulas, NO convertir
+                    if col_idx in columnas_con_formulas:
+                        formulas_preservadas += 1
+                        continue
+
+                    # Convertir a valor
+                    if cell_valor.value is not None:
+                        cell.value = cell_valor.value
+                        formulas_convertidas += 1
+                    else:
+                        # Si no hay valor, poner 0
+                        cell.value = 0
+                        formulas_convertidas += 1
+                elif cell_valor.value is not None and cell.value != cell_valor.value:
+                    # Asegurar que usamos valores, no fórmulas (excepto columnas especiales)
+                    if col_idx not in columnas_con_formulas:
+                        cell.value = cell_valor.value
+
+        print(f"  ✓ {formulas_convertidas} fórmulas convertidas a valores")
+        print(f"  ✓ {formulas_preservadas} fórmulas preservadas (Inv Final, Columna G)")
+
+        # Cerrar workbooks auxiliares
+        wb_original.close()
+        wb_valores.close()
 
         # Agrupar por categoría y sumar cantidades finales
         cantidades_por_categoria = df_final.groupby('Categoria')['Cantidad_Final'].sum()
@@ -456,17 +728,23 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
                 print(f"  + Creada nueva categoria '{categoria}': {cantidad}")
 
         # Guardar el workbook preservando todos los estilos
-        wb.save(layout_path)
-        print(f"\n+ Inventario actualizado exitosamente: '{layout_path}'")
+        save_path = output_path if output_path else layout_path
+        wb.save(save_path)
+        print(f"\n+ Inventario actualizado exitosamente: '{save_path}'")
         print("  (Se preservaron todos los bordes, colores y estilos del Excel)")
+        print("  (Todas las fórmulas fueron convertidas a valores)")
+
+        return save_path
 
     except FileNotFoundError:
         print(f"\n! ADVERTENCIA: No se encontro el archivo '{layout_path}'")
+        return None
 
     except Exception as e:
         print(f"\nX Error al actualizar inventario: {str(e)}")
         import traceback
         traceback.print_exc()
+        return None
 
 
 if __name__ == "__main__":

@@ -54,7 +54,7 @@ echo La aplicacion se abrira en tu navegador automaticamente.
 echo Para cerrar la aplicacion, cierra esta ventana o presiona Ctrl+C
 echo.
 
-python app_gradio.py
+python .sistema\app_gradio.py
 
 if errorlevel 1 (
     echo.

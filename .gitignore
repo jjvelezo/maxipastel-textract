@@ -78,3 +78,8 @@ simplificar_config.py
 
 # Archivos de sistema Windows
 nul
+
+# Carpetas de trabajo (contienen archivos generados)
+uploads/
+logs/
+__pycache__/
