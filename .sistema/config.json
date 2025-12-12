@@ -1,5 +1,5 @@
 {
-  "USAR_AWS": false,
+  "USAR_AWS": true,
   "Pasteles": {
     "variantes": [
       {
