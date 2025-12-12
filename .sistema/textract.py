@@ -627,6 +627,8 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
     Busca la columna especificada (entrada o salida) en los encabezados y la fila con el nombre de la categoría,
     luego coloca el valor en la intersección.
 
+    IMPORTANTE: Copia el Inv Final del archivo anterior al Inv Inicial del nuevo archivo (SOLO VALORES, NO FÓRMULAS).
+
     Args:
         df_final: DataFrame con las cantidades finales por categoría
         layout_path: Ruta al archivo de inventario inicial (subido por el usuario)
@@ -644,7 +646,7 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
         wb_original = load_workbook(layout_path, data_only=False, keep_vba=False)
         ws_original = wb_original.active
 
-        # Cargar también con data_only para intentar obtener valores
+        # Cargar también con data_only para intentar obtener valores calculados de las fórmulas
         wb_valores = load_workbook(layout_path, data_only=True, keep_vba=False)
         ws_valores = wb_valores.active
 
@@ -652,41 +654,60 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
         wb = load_workbook(layout_path, data_only=False, keep_vba=False)
         ws = wb.active
 
-        # Buscar columnas que contienen "Inv Final" o columna G
-        print("  → Identificando columnas con fórmulas a preservar...")
-        columnas_con_formulas = set()
+        # PASO CRÍTICO: Copiar COLUMNA E (Inv Final) del archivo ORIGEN → COLUMNA B (Inv Inicial) del archivo NUEVO
+        # Columna E = Inv Final del archivo anterior (origen)
+        # Columna B = Inv Inicial del archivo nuevo (destino)
+        print("  → Copiando Columna E (Inv Final del archivo anterior) → Columna B (Inv Inicial del archivo nuevo)...")
 
-        # Buscar en la primera fila (encabezados)
-        for col_idx in range(1, ws.max_column + 1):
-            header_cell = ws.cell(row=1, column=col_idx)
-            if header_cell.value:
-                header_text = str(header_cell.value).lower().strip()
-                # Si contiene "inv final" o "inventario final"
-                if 'inv' in header_text and 'final' in header_text:
-                    columnas_con_formulas.add(col_idx)
-                    print(f"  ✓ Columna {col_idx} ('{header_cell.value}') mantendrá fórmulas")
-            # Columna G (índice 7)
-            if col_idx == 7:
-                columnas_con_formulas.add(col_idx)
-                print(f"  ✓ Columna G (índice {col_idx}) mantendrá fórmulas")
+        COL_INV_FINAL = 5   # Columna E (5 en índice de Excel)
+        COL_INV_INICIAL = 2  # Columna B (2 en índice de Excel)
 
-        # Convertir fórmulas a valores EXCEPTO en las columnas identificadas
-        print("  → Convirtiendo fórmulas a valores (excepto columnas especiales)...")
+        valores_copiados = 0
+        for row_idx in range(2, ws_valores.max_row + 1):  # Empezar desde fila 2 (saltar encabezado)
+            # Leer el VALOR calculado de columna E (Inv Final) del archivo ANTERIOR
+            cell_inv_final_origen = ws_valores.cell(row=row_idx, column=COL_INV_FINAL)
+            valor_final = cell_inv_final_origen.value
+
+            # Si hay un valor numérico, copiarlo a columna B (Inv Inicial) del archivo NUEVO
+            if valor_final is not None and isinstance(valor_final, (int, float)):
+                cell_inv_inicial_destino = ws.cell(row=row_idx, column=COL_INV_INICIAL)
+                cell_inv_inicial_destino.value = valor_final  # VALOR numérico, NO fórmula
+                valores_copiados += 1
+
+        print(f"  ✓ {valores_copiados} valores copiados: Columna E (Inv Final anterior) → Columna B (Inv Inicial nuevo)")
+
+        # Identificar columnas que NO deben ser sobrescritas durante la conversión
+        print("  → Identificando columnas a preservar...")
+        columnas_a_no_sobrescribir = set()
+
+        # Columna B (2) = Inv Inicial - NO sobrescribir (acabamos de copiar valores aquí)
+        # Columna E (5) = Inv Final - DEBE mantener fórmulas
+        # Columna G (7) - DEBE mantener fórmulas
+        columnas_a_no_sobrescribir.add(2)  # Columna B (Inv Inicial) - RECIÉN COPIADA
+        columnas_a_no_sobrescribir.add(5)  # Columna E (Inv Final)
+        columnas_a_no_sobrescribir.add(7)  # Columna G
+
+        print(f"  ✓ Columna B (Inv Inicial) NO será sobrescrita (valores recién copiados)")
+        print(f"  ✓ Columna E (Inv Final) mantendrá fórmulas")
+        print(f"  ✓ Columna G mantendrá fórmulas")
+
+        # Convertir fórmulas a valores EXCEPTO en las columnas protegidas
+        print("  → Convirtiendo fórmulas a valores (excepto columnas protegidas)...")
         formulas_convertidas = 0
         formulas_preservadas = 0
 
         for row_idx in range(1, ws.max_row + 1):
             for col_idx in range(1, ws.max_column + 1):
+                # SALTAR columnas protegidas (B, E, G)
+                if col_idx in columnas_a_no_sobrescribir:
+                    # No tocar esta celda, ya tiene el valor correcto
+                    continue
+
                 cell = ws.cell(row=row_idx, column=col_idx)
                 cell_valor = ws_valores.cell(row=row_idx, column=col_idx)
 
                 # Si la celda tiene una fórmula
                 if isinstance(cell.value, str) and cell.value.startswith('='):
-                    # Si está en una columna que debe preservar fórmulas, NO convertir
-                    if col_idx in columnas_con_formulas:
-                        formulas_preservadas += 1
-                        continue
-
                     # Convertir a valor
                     if cell_valor.value is not None:
                         cell.value = cell_valor.value
@@ -696,12 +717,11 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
                         cell.value = 0
                         formulas_convertidas += 1
                 elif cell_valor.value is not None and cell.value != cell_valor.value:
-                    # Asegurar que usamos valores, no fórmulas (excepto columnas especiales)
-                    if col_idx not in columnas_con_formulas:
-                        cell.value = cell_valor.value
+                    # Asegurar que usamos valores, no fórmulas
+                    cell.value = cell_valor.value
 
         print(f"  ✓ {formulas_convertidas} fórmulas convertidas a valores")
-        print(f"  ✓ {formulas_preservadas} fórmulas preservadas (Inv Final, Columna G)")
+        print(f"  ✓ Columnas B, E, G preservadas correctamente")
 
         # Cerrar workbooks auxiliares
         wb_original.close()
@@ -774,8 +794,9 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
         save_path = output_path if output_path else layout_path
         wb.save(save_path)
         print(f"\n+ Inventario actualizado exitosamente: '{save_path}'")
-        print("  (Se preservaron todos los bordes, colores y estilos del Excel)")
-        print("  (Todas las fórmulas fueron convertidas a valores)")
+        print("  ✓ Columna E (Inv Final anterior) → Columna B (Inv Inicial nuevo) - solo valores")
+        print("  ✓ Se preservaron todos los bordes, colores y estilos del Excel")
+        print("  ✓ Columna E (Inv Final) mantiene fórmulas para recalcular automáticamente")
 
         return save_path
 
