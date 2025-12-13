@@ -215,16 +215,17 @@ def limpiar_datos_entrada(df: pd.DataFrame) -> pd.DataFrame:
     print("  * Modo ENTRADA: Buscando columna 'Cantidad'...")
     for col in df_clean.columns:
         col_lower = str(col).lower()
-        if 'cantidad' in col_lower or 'cant' in col_lower or 'qty' in col_lower or 'unid' in col_lower:
+        # IMPORTANTE: Buscar 'cantidad' primero (exacto), no 'unid' que puede confundirse con 'unidad'
+        if 'cantidad' in col_lower or 'cant.' in col_lower or 'qty' in col_lower:
             cantidad_col = col
-            print(f"  ✓ Columna de cantidad encontrada: '{col}'")
+            print(f"  [OK] Columna de cantidad encontrada: '{col}'")
             break
 
     if cantidad_col is None:
         # Intentar usar la última columna como cantidad
         if len(df_clean.columns) >= 2:
             cantidad_col = df_clean.columns[-1]
-            print(f"  ! No se encontró 'Cantidad', usando última columna: '{cantidad_col}'")
+            print(f"  [ADVERTENCIA] No se encontro 'Cantidad', usando ultima columna: '{cantidad_col}'")
         else:
             raise ValueError(f"No se encontró columna de Cantidad. Columnas: {list(df_clean.columns)}")
 
@@ -242,15 +243,15 @@ def limpiar_datos_entrada(df: pd.DataFrame) -> pd.DataFrame:
     try:
         primera_col_data = df_clean[primera_col]
         if primera_col_data is None or len(primera_col_data) == 0:
-            print(f"  ! ADVERTENCIA: Primera columna '{primera_col}' está vacía")
+            print(f"  [ADVERTENCIA] Primera columna '{primera_col}' esta vacia")
             porcentaje_numerico = 0
         else:
             valores_numericos = pd.to_numeric(primera_col_data, errors='coerce')
             porcentaje_numerico = valores_numericos.notna().sum() / len(df_clean) if len(df_clean) > 0 else 0
     except Exception as e:
-        print(f"  ! Error al analizar primera columna: {e}")
-        print(f"  ! Columnas: {list(df_clean.columns)}")
-        print(f"  ! Primeras filas del DataFrame:")
+        print(f"  [ERROR] Error al analizar primera columna: {e}")
+        print(f"  [ERROR] Columnas: {list(df_clean.columns)}")
+        print(f"  [ERROR] Primeras filas del DataFrame:")
         print(df_clean.head())
         porcentaje_numerico = 0
 
@@ -421,7 +422,7 @@ def limpiar_datos_salida(df: pd.DataFrame, config_path: str = 'config.json') -> 
                 })
             else:
                 # Debug: mostrar qué valores se encontraron
-                print(f"  ! No se encontró cantidad entera para '{producto}': valores = {valores[1:]}")
+                print(f"  [ADVERTENCIA] No se encontro cantidad entera para '{producto}': valores = {valores[1:]}")
 
     if productos_filtrados:
         productos_unicos = list(set(productos_filtrados))[:5]
@@ -439,7 +440,7 @@ def limpiar_datos_salida(df: pd.DataFrame, config_path: str = 'config.json') -> 
         lambda x: re.sub(r'^[I\|i]\s*', '', x).strip()
     )
 
-    print(f"  ✓ Procesados {len(df_final)} productos de salida (ventas)")
+    print(f"  [OK] Procesados {len(df_final)} productos de salida (ventas)")
     return df_final.reset_index(drop=True)
 
 
@@ -531,7 +532,7 @@ def validar_y_multiplicar_entrada(df_clean: pd.DataFrame, config_path: str = 'co
         if not encontrado:
             productos_no_encontrados.append(producto)
             categoria_no_registrada = f"{producto} (no registrado)"
-            print(f"  ! Producto no registrado: '{producto}'")
+            print(f"  [ADVERTENCIA] Producto no registrado: '{producto}'")
             resultados.append({
                 'Producto': producto,
                 'Cantidad_Original': cantidad,
@@ -541,7 +542,7 @@ def validar_y_multiplicar_entrada(df_clean: pd.DataFrame, config_path: str = 'co
             })
 
     if productos_no_encontrados:
-        print(f"\n! Se encontraron {len(productos_no_encontrados)} producto(s) no registrado(s) en config.json")
+        print(f"\n[ADVERTENCIA] Se encontraron {len(productos_no_encontrados)} producto(s) no registrado(s) en config.json")
 
     return pd.DataFrame(resultados)
 
@@ -604,7 +605,7 @@ def validar_y_multiplicar_salida(df_clean: pd.DataFrame, config_path: str = 'con
         if not encontrado:
             productos_no_encontrados.append(producto)
             categoria_no_registrada = f"{producto} (no registrado)"
-            print(f"  ! Producto de salida no registrado: '{producto}'")
+            print(f"  [ADVERTENCIA] Producto de salida no registrado: '{producto}'")
             resultados.append({
                 'Producto': producto,
                 'Cantidad_Original': cantidad,
@@ -614,7 +615,7 @@ def validar_y_multiplicar_salida(df_clean: pd.DataFrame, config_path: str = 'con
             })
 
     if productos_no_encontrados:
-        print(f"\n! Se encontraron {len(productos_no_encontrados)} producto(s) de salida no registrado(s)")
+        print(f"\n[ADVERTENCIA] Se encontraron {len(productos_no_encontrados)} producto(s) de salida no registrado(s)")
 
     return pd.DataFrame(resultados)
 
@@ -694,32 +695,32 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
                 if fecha_archivo == fecha_calendario:
                     # MISMA FECHA: inventario_12_12_2025.xlsx + calendario 12/12/2025
                     misma_fecha = True
-                    print(f"  ⚠️ DETECTADO: MISMA FECHA")
-                    print(f"  → Archivo cargado: inventario_{fecha_archivo}.xlsx")
-                    print(f"  → Fecha seleccionada: {fecha_calendario}")
-                    print(f"  → Se copiará TODO el archivo tal cual (continuación de carga)")
-                    print(f"  → Inv Inicial e Inv Final NO se modificarán")
+                    print(f"  [DETECTADO] MISMA FECHA")
+                    print(f"  - Archivo cargado: inventario_{fecha_archivo}.xlsx")
+                    print(f"  - Fecha seleccionada: {fecha_calendario}")
+                    print(f"  - Se copiara TODO el archivo tal cual (continuacion de carga)")
+                    print(f"  - Inv Inicial e Inv Final NO se modificaran")
                 else:
                     # FECHA DIFERENTE: inventario_12_12_2025.xlsx + calendario 13/12/2025
                     misma_fecha = False
-                    print(f"  ✓ FECHA DIFERENTE")
-                    print(f"  → Archivo cargado (día anterior): inventario_{fecha_archivo}.xlsx")
-                    print(f"  → Fecha seleccionada (nuevo día): {fecha_calendario}")
-                    print(f"  → Se copiará Inv Final (col E) → Inv Inicial (col B)")
+                    print(f"  [OK] FECHA DIFERENTE")
+                    print(f"  - Archivo cargado (dia anterior): inventario_{fecha_archivo}.xlsx")
+                    print(f"  - Fecha seleccionada (nuevo dia): {fecha_calendario}")
+                    print(f"  - Se copiara Inv Final (col E) a Inv Inicial (col B)")
 
         # PASO 2: Determinar qué archivo usar como base
         if misma_fecha:
             # MISMA FECHA: usar el archivo que el usuario cargó
             archivo_base = layout_path
             archivo_para_inv_final = None  # No necesitamos copiar Inv Final
-            print(f"  → Base: archivo que cargaste (misma fecha)")
+            print(f"  - Base: archivo que cargaste (misma fecha)")
         else:
             # FECHA DIFERENTE: usar el template de .sistema
             template_path = Path(__file__).parent / 'Inventario_layout.xlsx'
             archivo_base = str(template_path)
             archivo_para_inv_final = layout_path  # Copiar Inv Final de este archivo
-            print(f"  → Base: Inventario_layout.xlsx (template de .sistema)")
-            print(f"  → Inv Final se copiará desde: {Path(layout_path).name}")
+            print(f"  - Base: Inventario_layout.xlsx (template de .sistema)")
+            print(f"  - Inv Final se copiara desde: {Path(layout_path).name}")
 
         # Cargar el archivo base
         wb_original = load_workbook(archivo_base, data_only=False, keep_vba=False)
@@ -748,7 +749,7 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
             # Copiar COLUMNA E (Inv Final) del archivo ORIGEN → COLUMNA B (Inv Inicial) del archivo NUEVO
             # Columna E = Inv Final del archivo anterior (origen)
             # Columna B = Inv Inicial del archivo nuevo (destino)
-            print("  → Copiando Columna E (Inv Final del archivo anterior) → Columna B (Inv Inicial del archivo nuevo)...")
+            print("  - Copiando Columna E (Inv Final del archivo anterior) a Columna B (Inv Inicial del archivo nuevo)...")
 
             valores_copiados = 0
             for row_idx in range(2, ws_inv_final_anterior.max_row + 1):  # Empezar desde fila 2 (saltar encabezado)
@@ -762,13 +763,13 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
                     cell_inv_inicial_destino.value = valor_final  # VALOR numérico, NO fórmula
                     valores_copiados += 1
 
-            print(f"  ✓ {valores_copiados} valores copiados: Columna E (Inv Final anterior) → Columna B (Inv Inicial nuevo)")
+            print(f"  [OK] {valores_copiados} valores copiados: Columna E (Inv Final anterior) a Columna B (Inv Inicial nuevo)")
         else:
             # MISMA FECHA: NO copiar, mantener el Inv Inicial actual
-            print("  ✓ Inv Inicial NO modificado (misma fecha de inventario, continuación de carga)")
+            print("  [OK] Inv Inicial NO modificado (misma fecha de inventario, continuacion de carga)")
 
         # Identificar columnas que NO deben ser sobrescritas durante la conversión
-        print("  → Identificando columnas a preservar...")
+        print("  - Identificando columnas a preservar...")
         columnas_a_no_sobrescribir = set()
 
         # Columna B (2) = Inv Inicial - NO sobrescribir (acabamos de copiar valores aquí)
@@ -778,12 +779,12 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
         columnas_a_no_sobrescribir.add(5)  # Columna E (Inv Final)
         columnas_a_no_sobrescribir.add(7)  # Columna G
 
-        print(f"  ✓ Columna B (Inv Inicial) NO será sobrescrita (valores recién copiados)")
-        print(f"  ✓ Columna E (Inv Final) mantendrá fórmulas")
-        print(f"  ✓ Columna G mantendrá fórmulas")
+        print(f"  [OK] Columna B (Inv Inicial) NO sera sobrescrita (valores recien copiados)")
+        print(f"  [OK] Columna E (Inv Final) mantendra formulas")
+        print(f"  [OK] Columna G mantendra formulas")
 
         # Convertir fórmulas a valores EXCEPTO en las columnas protegidas
-        print("  → Convirtiendo fórmulas a valores (excepto columnas protegidas)...")
+        print("  - Convirtiendo formulas a valores (excepto columnas protegidas)...")
         formulas_convertidas = 0
         formulas_preservadas = 0
 
@@ -811,8 +812,8 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
                     # Asegurar que usamos valores, no fórmulas
                     cell.value = cell_valor.value
 
-        print(f"  ✓ {formulas_convertidas} fórmulas convertidas a valores")
-        print(f"  ✓ Columnas B, E, G preservadas correctamente")
+        print(f"  [OK] {formulas_convertidas} formulas convertidas a valores")
+        print(f"  [OK] Columnas B, E, G preservadas correctamente")
 
         # Cerrar workbooks auxiliares
         wb_original.close()
@@ -832,7 +833,7 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
                 break
 
         if col_entrada_idx is None:
-            print(f"  ! No se encontro la columna '{tipo_operacion}' en {layout_path}")
+            print(f"  [ERROR] No se encontro la columna '{tipo_operacion}' en {layout_path}")
             return
 
         # Actualizar o crear filas para cada categoría
@@ -889,18 +890,18 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
         print(f"\n+ Inventario actualizado exitosamente: '{save_path}'")
 
         if misma_fecha:
-            print("  ✓ MISMA FECHA: Se agregaron movimientos al inventario existente")
-            print("  ✓ Inv Inicial NO modificado (continuación de carga de la misma fecha)")
+            print("  [OK] MISMA FECHA: Se agregaron movimientos al inventario existente")
+            print("  [OK] Inv Inicial NO modificado (continuacion de carga de la misma fecha)")
         else:
-            print("  ✓ FECHA DIFERENTE: Columna E (Inv Final anterior) → Columna B (Inv Inicial nuevo)")
+            print("  [OK] FECHA DIFERENTE: Columna E (Inv Final anterior) a Columna B (Inv Inicial nuevo)")
 
-        print("  ✓ Se preservaron todos los bordes, colores y estilos del Excel")
-        print("  ✓ Columna E (Inv Final) mantiene fórmulas para recalcular automáticamente")
+        print("  [OK] Se preservaron todos los bordes, colores y estilos del Excel")
+        print("  [OK] Columna E (Inv Final) mantiene formulas para recalcular automaticamente")
 
         return save_path
 
     except FileNotFoundError:
-        print(f"\n! ADVERTENCIA: No se encontro el archivo '{layout_path}'")
+        print(f"\n[ADVERTENCIA] No se encontro el archivo '{layout_path}'")
         return None
 
     except Exception as e:
