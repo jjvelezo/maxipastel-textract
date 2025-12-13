@@ -123,17 +123,35 @@ def process_file(files, tipo_operacion, inventario_inicial, fecha_inventario):
 
         df_combined = pd.concat(all_results, ignore_index=True)
 
-        # ELIMINAR duplicados por categoría (tomar solo el primero)
-        status_msg += "  → Eliminando productos duplicados...\n"
+        # Manejar duplicados según tipo de operación
         productos_antes = len(df_combined)
 
-        # Eliminar duplicados manteniendo solo el primer valor encontrado
-        df_combined = df_combined.drop_duplicates(subset=['Categoria'], keep='first')
+        if tipo_operacion.lower() == 'entrada':
+            # ENTRADA: Agrupar por categoría y SUMAR todas las cantidades
+            status_msg += "  → Agrupando y sumando cantidades por categoría...\n"
 
-        productos_eliminados = productos_antes - len(df_combined)
-        if productos_eliminados > 0:
-            status_msg += f"  ✓ {productos_eliminados} productos duplicados eliminados\n"
-        status_msg += f"  ✓ {len(df_combined)} productos únicos\n"
+            # Agrupar por categoría y sumar cantidades
+            df_agrupado = df_combined.groupby('Categoria', as_index=False).agg({
+                'Producto': 'first',  # Mantener el primer nombre de producto
+                'Cantidad_Original': 'sum',  # Sumar cantidades originales
+                'Multiplicador': 'first',  # Mantener el multiplicador (es el mismo para la categoría)
+                'Cantidad_Final': 'sum'  # Sumar cantidades finales
+            })
+
+            df_combined = df_agrupado
+            productos_agrupados = productos_antes - len(df_combined)
+            if productos_agrupados > 0:
+                status_msg += f"  ✓ {productos_agrupados} productos agrupados (sumando cantidades)\n"
+            status_msg += f"  ✓ {len(df_combined)} categorías únicas con cantidades totales\n"
+        else:
+            # SALIDA: Eliminar duplicados manteniendo solo el primero
+            status_msg += "  → Eliminando productos duplicados...\n"
+            df_combined = df_combined.drop_duplicates(subset=['Categoria'], keep='first')
+
+            productos_eliminados = productos_antes - len(df_combined)
+            if productos_eliminados > 0:
+                status_msg += f"  ✓ {productos_eliminados} productos duplicados eliminados\n"
+            status_msg += f"  ✓ {len(df_combined)} productos únicos\n"
 
         # Exportar a Excel temporal
         output_file = Path(__file__).parent / 'productos_final.xlsx'

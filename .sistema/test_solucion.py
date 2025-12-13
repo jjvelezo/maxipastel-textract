@@ -1,60 +1,53 @@
 import sys
-import os
-sys.path.insert(0, '.')
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
-# Configurar encoding para Windows
-if sys.platform == 'win32':
-    import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-
-from textract import limpiar_datos_salida, validar_y_multiplicar_salida
 import pandas as pd
+import json
+import re
+from textract import limpiar_datos_entrada, validar_y_multiplicar_entrada
 
-# Cargar datos raw de ambas imagenes
-print('=== SIMULACION: Procesando ambas imagenes ===')
-print()
+# Cargar datos raw
+df_raw = pd.read_csv('datos_raw.csv')
+print('=== PASO 1: DATOS RAW ===')
+print(f'Total filas: {len(df_raw)}')
+pasteles_raw = df_raw[df_raw.iloc[:, 0].str.contains('PASTEL', na=False, case=False)]
+print(f'Pasteles en datos_raw: {len(pasteles_raw)}')
 
-# Imagen 1
-df1_raw = pd.read_csv('datos_raw.csv', encoding='utf-8-sig')
-print('IMAGEN 1 - Limpiando datos...')
-df1_clean = limpiar_datos_salida(df1_raw, 'config.json')
-print(f'  Encontrados: {len(df1_clean)} productos')
+# Limpiar datos
+print('\n=== PASO 2: LIMPIAR DATOS ===')
+df_clean = limpiar_datos_entrada(df_raw)
+print(f'Total productos limpios: {len(df_clean)}')
+pasteles_clean = df_clean[df_clean['Producto'].str.contains('PASTEL', na=False, case=False)]
+print(f'Pasteles en df_clean: {len(pasteles_clean)}')
 
-# Imagen 2
-df2_raw = pd.read_csv('temp_imagen2.csv', encoding='utf-8-sig')
-print('IMAGEN 2 - Limpiando datos...')
-df2_clean = limpiar_datos_salida(df2_raw, 'config.json')
-print(f'  Encontrados: {len(df2_clean)} productos')
+# Validar y multiplicar
+print('\n=== PASO 3: VALIDAR Y MULTIPLICAR ===')
+df_validated = validar_y_multiplicar_entrada(df_clean, 'config.json')
+print(f'Total productos validados: {len(df_validated)}')
+pasteles_validated = df_validated[df_validated['Producto'].str.contains('PASTEL', na=False, case=False)]
+print(f'Pasteles en df_validated: {len(pasteles_validated)}')
+print('\nPasteles individuales:')
+print(pasteles_validated[['Producto', 'Cantidad_Original', 'Multiplicador', 'Cantidad_Final']].to_string())
 
-print()
-print('=== Validando y asignando nombres de salida ===')
-df1_final = validar_y_multiplicar_salida(df1_clean, 'config.json')
-df2_final = validar_y_multiplicar_salida(df2_clean, 'config.json')
+# Simular agrupación (NUEVA LÓGICA DE ENTRADA)
+print('\n=== PASO 4: AGRUPAR POR CATEGORÍA (NUEVA LÓGICA) ===')
+df_agrupado = df_validated.groupby('Categoria', as_index=False).agg({
+    'Producto': 'first',
+    'Cantidad_Original': 'sum',
+    'Multiplicador': 'first',
+    'Cantidad_Final': 'sum'
+})
 
-print()
-print('IMAGEN 1 - Productos validados:')
-print(df1_final[['Producto', 'Cantidad_Original', 'Categoria']].head(10).to_string(index=False))
+print(f'Total categorías únicas: {len(df_agrupado)}')
+pasteles_agrupado = df_agrupado[df_agrupado['Categoria'] == 'Pasteles']
+print(f'\nCategoría Pasteles agrupada:')
+print(pasteles_agrupado[['Producto', 'Cantidad_Original', 'Multiplicador', 'Cantidad_Final']].to_string())
 
-print()
-print('IMAGEN 2 - Productos validados:')
-print(df2_final[['Producto', 'Cantidad_Original', 'Categoria']].to_string(index=False))
-
-# Combinar
-df_combined = pd.concat([df1_final, df2_final], ignore_index=True)
-print()
-print('=== COMBINADOS (antes de eliminar duplicados) ===')
-print(f'Total: {len(df_combined)} productos')
-palos = df_combined[df_combined['Categoria'] == 'Palos']
-print(f'Palos: {len(palos)} filas')
-if len(palos) > 0:
-    print(palos[['Producto', 'Cantidad_Original']].to_string(index=False))
-
-# Eliminar duplicados
-df_final = df_combined.drop_duplicates(subset=['Categoria'], keep='first')
-print()
-print('=== RESULTADO FINAL (despues de eliminar duplicados) ===')
-print(f'Total: {len(df_final)} productos unicos')
-palos_final = df_final[df_final['Categoria'] == 'Palos']
-if len(palos_final) > 0:
-    print('Palos:')
-    print(palos_final[['Producto', 'Cantidad_Original']].to_string(index=False))
+print('\n=== RESUMEN ===')
+print(f'Pasteles originales (datos_raw): {len(pasteles_raw)}')
+print(f'Pasteles después de limpieza: {len(pasteles_clean)}')
+print(f'Pasteles después de validar: {len(pasteles_validated)}')
+print(f'Cantidad Original Total: {pasteles_validated["Cantidad_Original"].sum()}')
+print(f'Cantidad Final Total: {pasteles_validated["Cantidad_Final"].sum()}')
+print(f'\nDespués de agrupar por categoría: 1 fila (Pasteles) con {pasteles_agrupado["Cantidad_Final"].iloc[0]} unidades')
