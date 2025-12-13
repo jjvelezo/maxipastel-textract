@@ -709,7 +709,16 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
                     print(f"  - Se copiara Inv Final (col E) a Inv Inicial (col B)")
 
         # PASO 2: Determinar qué archivo usar como base
-        if misma_fecha:
+        # IMPORTANTE: Si el archivo de salida YA EXISTE, usarlo como base para preservar
+        # todas las columnas (Entrada, Salida, etc.)
+        if output_path and os.path.exists(output_path):
+            # El archivo de salida ya existe, usarlo como base para preservar datos
+            archivo_base = output_path
+            archivo_para_inv_final = None
+            misma_fecha = True  # Forzar misma_fecha porque estamos continuando
+            print(f"  - Base: archivo de salida existente (preservar todas las columnas)")
+            print(f"  - Archivo: {Path(output_path).name}")
+        elif misma_fecha:
             # MISMA FECHA: usar el archivo que el usuario cargó
             archivo_base = layout_path
             archivo_para_inv_final = None  # No necesitamos copiar Inv Final
@@ -731,11 +740,19 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
         ws_valores = wb_valores.active
 
         # Si es FECHA DIFERENTE, cargar ADICIONAL el archivo anterior para copiar Inv Final
+        # IMPORTANTE: NO usar data_only=True porque no funciona si Excel no guardó valores.
+        # En su lugar, cargaremos con data_only=False y CALCULAREMOS manualmente Inv Final
         wb_inv_final_anterior = None
         ws_inv_final_anterior = None
         if archivo_para_inv_final:
-            wb_inv_final_anterior = load_workbook(archivo_para_inv_final, data_only=True, keep_vba=False)
+            # Cargar el archivo con data_only=False para leer TODO (incluyendo fórmulas)
+            wb_inv_final_anterior = load_workbook(archivo_para_inv_final, data_only=False, keep_vba=False)
             ws_inv_final_anterior = wb_inv_final_anterior.active
+
+            # TAMBIÉN cargar con data_only=True para INTENTAR leer valores calculados
+            # (en caso de que Excel sí haya guardado los valores)
+            wb_inv_final_valores = load_workbook(archivo_para_inv_final, data_only=True, keep_vba=False)
+            ws_inv_final_valores = wb_inv_final_valores.active
 
         # Crear workbook nuevo para resultado final
         wb = load_workbook(archivo_base, data_only=False, keep_vba=False)
@@ -751,19 +768,66 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
             # Columna B = Inv Inicial del archivo nuevo (destino)
             print("  - Copiando Columna E (Inv Final del archivo anterior) a Columna B (Inv Inicial del archivo nuevo)...")
 
+            # COLUMNAS DE LA FÓRMULA: Inv Final = B (Inv Inicial) + C (Entrada) - D (Salida)
+            COL_B_INV_INICIAL = 2
+            COL_C_ENTRADA = 3
+            COL_D_SALIDA = 4
+
             valores_copiados = 0
+            valores_nulos = 0
+            valores_calculados_manual = 0
+
             for row_idx in range(2, ws_inv_final_anterior.max_row + 1):  # Empezar desde fila 2 (saltar encabezado)
-                # Leer el VALOR calculado de columna E (Inv Final) del archivo ANTERIOR
-                cell_inv_final_origen = ws_inv_final_anterior.cell(row=row_idx, column=COL_INV_FINAL)
-                valor_final = cell_inv_final_origen.value
+                # ESTRATEGIA 1: Intentar leer el valor calculado de columna E (si Excel lo guardó)
+                cell_inv_final_valores = ws_inv_final_valores.cell(row=row_idx, column=COL_INV_FINAL)
+                valor_final = cell_inv_final_valores.value
 
-                # Si hay un valor numérico, copiarlo a columna B (Inv Inicial) del archivo NUEVO
+                # Si data_only=True devolvió un valor numérico válido, úsalo
                 if valor_final is not None and isinstance(valor_final, (int, float)):
-                    cell_inv_inicial_destino = ws.cell(row=row_idx, column=COL_INV_INICIAL)
-                    cell_inv_inicial_destino.value = valor_final  # VALOR numérico, NO fórmula
-                    valores_copiados += 1
+                    # Tenemos el valor calculado, usarlo directamente
+                    pass  # valor_final ya está asignado
+                else:
+                    # ESTRATEGIA 2: data_only=True no funcionó, CALCULAR MANUALMENTE
+                    # La fórmula de Inv Final es: =B + C - D
+                    # Leer valores de columnas B, C, D del archivo anterior
+                    val_b = ws_inv_final_valores.cell(row=row_idx, column=COL_B_INV_INICIAL).value
+                    val_c = ws_inv_final_valores.cell(row=row_idx, column=COL_C_ENTRADA).value
+                    val_d = ws_inv_final_valores.cell(row=row_idx, column=COL_D_SALIDA).value
 
-            print(f"  [OK] {valores_copiados} valores copiados: Columna E (Inv Final anterior) a Columna B (Inv Inicial nuevo)")
+                    # Convertir None a 0 para el cálculo
+                    val_b = val_b if val_b is not None and isinstance(val_b, (int, float)) else 0
+                    val_c = val_c if val_c is not None and isinstance(val_c, (int, float)) else 0
+                    val_d = val_d if val_d is not None and isinstance(val_d, (int, float)) else 0
+
+                    # CALCULAR: Inv Final = Inv Inicial + Entrada - Salida
+                    valor_final = val_b + val_c - val_d
+                    valores_calculados_manual += 1
+
+                # VALIDACIÓN: Solo copiar si es un NÚMERO válido (int o float)
+                if valor_final is not None and isinstance(valor_final, (int, float)):
+                    # Copiar el VALOR NUMÉRICO a columna B (Inv Inicial) del archivo NUEVO
+                    cell_inv_inicial_destino = ws.cell(row=row_idx, column=COL_INV_INICIAL)
+
+                    # CRÍTICO: Asignar como NÚMERO (float o int), NUNCA como fórmula
+                    # Si valor_final es int, mantenerlo como int; si es float, mantenerlo como float
+                    if isinstance(valor_final, int):
+                        cell_inv_inicial_destino.value = int(valor_final)
+                    else:
+                        cell_inv_inicial_destino.value = float(valor_final)
+
+                    valores_copiados += 1
+                elif valor_final is None:
+                    # Celda vacía o fórmula sin valor calculado
+                    valores_nulos += 1
+
+            print(f"  [OK] {valores_copiados} valores numéricos copiados: Columna E (Inv Final anterior) → Columna B (Inv Inicial nuevo)")
+            if valores_calculados_manual > 0:
+                print(f"  [INFO] {valores_calculados_manual} valores calculados manualmente (B+C-D)")
+            if valores_nulos > 0:
+                print(f"  [INFO] {valores_nulos} celdas vacías o sin valor calculado fueron omitidas")
+
+            # Cerrar el workbook auxiliar de valores
+            wb_inv_final_valores.close()
         else:
             # MISMA FECHA: NO copiar, mantener el Inv Inicial actual
             print("  [OK] Inv Inicial NO modificado (misma fecha de inventario, continuacion de carga)")
@@ -778,6 +842,17 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
         columnas_a_no_sobrescribir.add(2)  # Columna B (Inv Inicial) - RECIÉN COPIADA
         columnas_a_no_sobrescribir.add(5)  # Columna E (Inv Final)
         columnas_a_no_sobrescribir.add(7)  # Columna G
+
+        # IMPORTANTE: Preservar TODAS las columnas de operación (Entrada, Salida, etc.)
+        # excepto la que estamos modificando en esta carga
+        for col_idx, col in enumerate(ws.iter_cols(min_row=1, max_row=1), start=1):
+            cell_value = col[0].value
+            if cell_value:
+                cell_lower = str(cell_value).lower().strip()
+                # Si es una columna de operación DIFERENTE a la que estamos cargando, protegerla
+                if cell_lower in ['entrada', 'salida'] and cell_lower != tipo_operacion.lower():
+                    columnas_a_no_sobrescribir.add(col_idx)
+                    print(f"  [OK] Columna '{cell_value}' NO sera sobrescrita (preservar datos existentes)")
 
         print(f"  [OK] Columna B (Inv Inicial) NO sera sobrescrita (valores recien copiados)")
         print(f"  [OK] Columna E (Inv Final) mantendra formulas")
@@ -821,9 +896,6 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
         if wb_inv_final_anterior:
             wb_inv_final_anterior.close()
 
-        # Agrupar por categoría y sumar cantidades finales
-        cantidades_por_categoria = df_final.groupby('Categoria')['Cantidad_Final'].sum()
-
         # Buscar la columna que contiene el tipo de operación en la primera fila (encabezados)
         col_entrada_idx = None
         for col_idx, col in enumerate(ws.iter_cols(min_row=1, max_row=1), start=1):
@@ -836,7 +908,60 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
             print(f"  [ERROR] No se encontro la columna '{tipo_operacion}' en {layout_path}")
             return
 
-        # Actualizar o crear filas para cada categoría
+        # PASO 1: Leer cantidades EXISTENTES del archivo de SALIDA (no del template)
+        # para hacer merge inteligente
+        print("  - Leyendo cantidades existentes del archivo de salida...")
+        cantidades_existentes = {}
+
+        # Verificar si el archivo de salida ya existe
+        if output_path and os.path.exists(output_path):
+            print(f"    Archivo de salida ya existe: {Path(output_path).name}")
+            # Cargar el archivo de salida existente para leer sus valores
+            wb_salida_existente = load_workbook(output_path, data_only=True, keep_vba=False)
+            ws_salida_existente = wb_salida_existente.active
+
+            for fila_idx, row in enumerate(ws_salida_existente.iter_rows(min_col=1, max_col=1), start=1):
+                cell_value = row[0].value
+                if cell_value and str(cell_value).strip():
+                    categoria = str(cell_value).strip()
+                    # Leer el valor actual de la columna de entrada/salida
+                    valor_actual = ws_salida_existente.cell(row=fila_idx, column=col_entrada_idx).value
+                    if valor_actual is not None and isinstance(valor_actual, (int, float)) and valor_actual > 0:
+                        cantidades_existentes[categoria] = valor_actual
+                        print(f"    Existente: '{categoria}' = {valor_actual}")
+
+            wb_salida_existente.close()
+        else:
+            print(f"    Archivo de salida no existe aún, primera carga para esta fecha")
+
+        # PASO 2: Agrupar cantidades NUEVAS por categoría
+        cantidades_nuevas = df_final.groupby('Categoria')['Cantidad_Final'].sum()
+
+        # PASO 3: MERGE INTELIGENTE - combinar existentes + nuevas
+        print("  - Haciendo merge inteligente de cantidades...")
+        cantidades_por_categoria = {}
+
+        # Agregar todas las cantidades existentes primero
+        for categoria, cantidad in cantidades_existentes.items():
+            cantidades_por_categoria[categoria] = cantidad
+
+        # Sobrescribir SOLO las categorías que vienen con datos nuevos (> 0)
+        for categoria, cantidad_nueva in cantidades_nuevas.items():
+            if cantidad_nueva and cantidad_nueva > 0:
+                # Sobrescribir con el nuevo valor
+                cantidades_por_categoria[categoria] = cantidad_nueva
+                if categoria in cantidades_existentes:
+                    print(f"    Merge: '{categoria}': {cantidades_existentes[categoria]} → {cantidad_nueva} (actualizado)")
+                else:
+                    print(f"    Merge: '{categoria}': (nuevo) → {cantidad_nueva}")
+            else:
+                # Cantidad nueva es 0 o None, preservar existente
+                if categoria in cantidades_existentes:
+                    print(f"    Merge: '{categoria}': {cantidades_existentes[categoria]} (preservado, nueva carga trae {cantidad_nueva})")
+                # Si no existe y la nueva es 0, no hacer nada (no agregamos 0s)
+
+        # Actualizar o crear filas para cada categoría (ahora con merge ya hecho)
+        print("  - Actualizando celdas en el Excel...")
         for categoria, cantidad in cantidades_por_categoria.items():
             if categoria == 'Sin Categoria':
                 continue  # Ignorar productos sin categoría
@@ -849,8 +974,8 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
                     # Actualizar la celda en la intersección
                     target_cell = ws.cell(row=fila_idx, column=col_entrada_idx)
                     target_cell.value = cantidad
+                    print(f"  + Celda actualizada '{categoria}': {cantidad}")
                     fila_encontrada = True
-                    print(f"  + Actualizado '{categoria}': {cantidad}")
                     break
 
             if not fila_encontrada:
@@ -887,7 +1012,8 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
         # Guardar el workbook preservando todos los estilos
         save_path = output_path if output_path else layout_path
         wb.save(save_path)
-        print(f"\n+ Inventario actualizado exitosamente: '{save_path}'")
+        wb.close()
+        print(f"\n+ Inventario guardado: '{save_path}'")
 
         if misma_fecha:
             print("  [OK] MISMA FECHA: Se agregaron movimientos al inventario existente")
