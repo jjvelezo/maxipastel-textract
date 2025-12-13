@@ -18,6 +18,49 @@ def load_config():
         return json.load(f)
 
 
+def limpiar_archivos_temporales():
+    """
+    Elimina archivos temporales antes de iniciar un nuevo procesamiento.
+
+    Archivos que se eliminan:
+    - datos_raw.csv: Datos crudos de Textract (se regenera en cada procesamiento)
+    - productos_final.xlsx: Resultado temporal (se regenera en cada procesamiento)
+    - temp_imagen*.csv: Archivos de versiones anteriores (basura acumulada)
+
+    Esta función NO elimina:
+    - config.json: Configuración del usuario
+    - Inventario_layout.xlsx: Template de inventario
+    - app_gradio.py, textract.py: Código fuente
+    """
+    import os
+    import glob
+
+    sistema_path = Path(__file__).parent
+    archivos_eliminados = []
+
+    # Lista de patrones de archivos temporales a eliminar
+    patrones_temporales = [
+        'datos_raw.csv',
+        'productos_final.xlsx',
+        'temp_imagen*.csv'
+    ]
+
+    for patron in patrones_temporales:
+        ruta_patron = sistema_path / patron
+        archivos = glob.glob(str(ruta_patron))
+
+        for archivo in archivos:
+            try:
+                if os.path.exists(archivo):
+                    os.remove(archivo)
+                    archivos_eliminados.append(Path(archivo).name)
+            except Exception as e:
+                # Si no se puede eliminar, continuar (no bloquear el proceso)
+                pass  # No bloquear si falla la eliminación
+
+    return len(archivos_eliminados)
+
+
 def process_file(files, tipo_operacion, inventario_inicial, fecha_inventario):
     """Procesa los archivos subidos y retorna los resultados"""
     if files is None or len(files) == 0:
@@ -61,6 +104,13 @@ def process_file(files, tipo_operacion, inventario_inicial, fecha_inventario):
         (base_path / 'uploads').mkdir(exist_ok=True)
 
         status_msg = "⏳ Iniciando procesamiento...\n\n"
+
+        # Limpiar archivos temporales de procesamiento anterior
+        status_msg += "🧹 Limpiando archivos temporales...\n"
+        archivos_limpiados = limpiar_archivos_temporales()
+        if archivos_limpiados > 0:
+            status_msg += f"  ✓ {archivos_limpiados} archivo(s) temporal(es) eliminado(s)\n"
+        status_msg += "\n"
 
         all_results = []
 
