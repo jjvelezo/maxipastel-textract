@@ -34,34 +34,27 @@ Sistema automatizado para procesar pedidos y actualizar inventarios usando recon
 
 ### Paso 2: Configurar Credenciales de AWS
 
-El sistema utiliza Amazon Textract para extraer texto de imágenes. Necesitas configurar tus credenciales de AWS:
+El sistema utiliza Amazon Textract para extraer texto de imágenes. **Este paso solo se hace UNA VEZ**.
 
-1. Abre una ventana de terminal o símbolo del sistema
-2. Ejecuta los siguientes comandos (reemplaza con tus credenciales):
+#### macOS (Método Simple)
+1. Haz doble clic en `CONFIGURAR_AWS.command`
+2. Si aparece un mensaje de seguridad, ve a "Preferencias del Sistema" > "Seguridad y Privacidad" y permite ejecutar el archivo
+3. El script te pedirá:
+   - **AWS Access Key ID** (proporcionado por el proveedor)
+   - **AWS Secret Access Key** (proporcionado por el proveedor)
+   - **Región** (presiona Enter para usar la predeterminada: us-east-1)
+4. ¡Listo! Las credenciales quedan configuradas permanentemente
 
-**Windows (CMD):**
-```cmd
-setx AWS_ACCESS_KEY_ID "tu_access_key_aqui"
-setx AWS_SECRET_ACCESS_KEY "tu_secret_key_aqui"
-setx AWS_DEFAULT_REGION "us-east-1"
+#### Windows (Método Manual)
+1. Crea la carpeta: `C:\Users\TuUsuario\.aws\`
+2. Dentro de esa carpeta, crea un archivo llamado `credentials` (sin extensión)
+3. Abre el archivo con Notepad y escribe:
+```ini
+[default]
+aws_access_key_id = tu_access_key_aqui
+aws_secret_access_key = tu_secret_key_aqui
 ```
-
-**Windows (PowerShell):**
-```powershell
-[System.Environment]::SetEnvironmentVariable('AWS_ACCESS_KEY_ID', 'tu_access_key_aqui', 'User')
-[System.Environment]::SetEnvironmentVariable('AWS_SECRET_ACCESS_KEY', 'tu_secret_key_aqui', 'User')
-[System.Environment]::SetEnvironmentVariable('AWS_DEFAULT_REGION', 'us-east-1', 'User')
-```
-
-**macOS/Linux:**
-```bash
-echo 'export AWS_ACCESS_KEY_ID="tu_access_key_aqui"' >> ~/.bash_profile
-echo 'export AWS_SECRET_ACCESS_KEY="tu_secret_key_aqui"' >> ~/.bash_profile
-echo 'export AWS_DEFAULT_REGION="us-east-1"' >> ~/.bash_profile
-source ~/.bash_profile
-```
-
-3. **Reinicia tu computadora** para que las variables de entorno tomen efecto
+4. Guarda y cierra el archivo
 
 ---
 
@@ -177,8 +170,10 @@ El archivo `.sistema/config.json` contiene las reglas de procesamiento:
 
 ## Archivos Importantes
 
-- `EJECUTAR_Windows.bat` - Ejecutable para Windows
-- `EJECUTAR_Mac.command` - Ejecutable para macOS
+- `CONFIGURAR_AWS.command` - **Ejecutar UNA VEZ** para configurar credenciales (macOS)
+- `EJECUTAR_Windows.bat` - Ejecutable principal para Windows
+- `EJECUTAR_Mac.command` - Ejecutable principal para macOS
+- `requirements.txt` - Lista de dependencias de Python
 - `.sistema/config.json` - Configuración de productos
 - `.sistema/textract.py` - Motor de procesamiento
 - `.sistema/app_gradio.py` - Interfaz web

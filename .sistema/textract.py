@@ -627,54 +627,145 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
     Busca la columna especificada (entrada o salida) en los encabezados y la fila con el nombre de la categoría,
     luego coloca el valor en la intersección.
 
-    IMPORTANTE: Copia el Inv Final del archivo anterior al Inv Inicial del nuevo archivo (SOLO VALORES, NO FÓRMULAS).
+    IMPORTANTE - Lógica de fechas (compara nombre del archivo VS fecha del calendario):
+
+    1. MISMA FECHA (continuación de carga):
+       - Usuario carga: "inventario_12_12_2025.xlsx"
+       - Usuario selecciona en calendario: 12/12/2025
+       - Resultado: Las fechas coinciden → CONTINUACIÓN de carga
+       - BASE: El archivo que cargaste (inventario_12_12_2025.xlsx)
+       - Comportamiento:
+         * NO copia Inv Final → Inv Inicial (mantiene todo intacto)
+         * Agrega/sobrescribe valores en columna "Entrada" o "Salida"
+         * Guarda como: "inventario_12_12_2025.xlsx" en Descargas (sobrescribe)
+
+    2. FECHA DIFERENTE (nuevo día):
+       - Usuario carga: "inventario_12_12_2025.xlsx" (del día anterior)
+       - Usuario selecciona en calendario: 13/12/2025 (nuevo día)
+       - Resultado: Las fechas NO coinciden → NUEVO DÍA
+       - BASE: "Inventario_layout.xlsx" (template de .sistema)
+       - Comportamiento:
+         * Copia Inv Final (col E) del archivo cargado → Inv Inicial (col B) del template
+         * Agrega valores en columna "Entrada" o "Salida"
+         * Guarda como: "inventario_13_12_2025.xlsx" en Descargas
+
+    3. PRIMER ARCHIVO:
+       - Usuario carga: "Inventario_layout.xlsx" (template vacío de .sistema)
+       - Usuario selecciona en calendario: 10/12/2025
+       - BASE: "Inventario_layout.xlsx" (el que cargó)
+       - Comportamiento:
+         * NO hay Inv Final anterior para copiar
+         * Agrega valores en columna "Entrada" o "Salida"
+         * Guarda como: "inventario_10_12_2025.xlsx" en Descargas
 
     Args:
         df_final: DataFrame con las cantidades finales por categoría
-        layout_path: Ruta al archivo de inventario inicial (subido por el usuario)
+        layout_path: Archivo que el usuario sube (inventario anterior o template)
         tipo_operacion: 'entrada' o 'salida' - determina qué columna usar en el Excel
-        output_path: Ruta donde guardar el archivo actualizado. Si es None, sobrescribe layout_path
+        output_path: Ruta donde guardar el archivo actualizado (nombre generado con fecha del calendario)
 
     Returns:
         Ruta del archivo guardado
     """
     from openpyxl import load_workbook
     from copy import copy
+    import os
+    import re
 
     try:
-        # Cargar el workbook existente
-        wb_original = load_workbook(layout_path, data_only=False, keep_vba=False)
+        # PASO 1: Comparar fecha del archivo cargado VS fecha seleccionada en el calendario
+        misma_fecha = False
+
+        # Extraer fecha del nombre del archivo que el usuario carga
+        # Ejemplo: "inventario_12_12_2025.xlsx" → fecha_archivo = "12_12_2025"
+        layout_filename = Path(layout_path).name
+        match_archivo = re.search(r'inventario_(\d{2}_\d{2}_\d{4})\.xlsx', layout_filename)
+
+        # Extraer fecha del output_path (que se genera con la fecha del calendario)
+        # Ejemplo: "C:\Users\...\Downloads\inventario_13_12_2025.xlsx" → fecha_calendario = "13_12_2025"
+        if output_path and match_archivo:
+            output_filename = Path(output_path).name
+            match_calendario = re.search(r'inventario_(\d{2}_\d{2}_\d{4})\.xlsx', output_filename)
+
+            if match_calendario:
+                fecha_archivo = match_archivo.group(1)
+                fecha_calendario = match_calendario.group(1)
+
+                if fecha_archivo == fecha_calendario:
+                    # MISMA FECHA: inventario_12_12_2025.xlsx + calendario 12/12/2025
+                    misma_fecha = True
+                    print(f"  ⚠️ DETECTADO: MISMA FECHA")
+                    print(f"  → Archivo cargado: inventario_{fecha_archivo}.xlsx")
+                    print(f"  → Fecha seleccionada: {fecha_calendario}")
+                    print(f"  → Se copiará TODO el archivo tal cual (continuación de carga)")
+                    print(f"  → Inv Inicial e Inv Final NO se modificarán")
+                else:
+                    # FECHA DIFERENTE: inventario_12_12_2025.xlsx + calendario 13/12/2025
+                    misma_fecha = False
+                    print(f"  ✓ FECHA DIFERENTE")
+                    print(f"  → Archivo cargado (día anterior): inventario_{fecha_archivo}.xlsx")
+                    print(f"  → Fecha seleccionada (nuevo día): {fecha_calendario}")
+                    print(f"  → Se copiará Inv Final (col E) → Inv Inicial (col B)")
+
+        # PASO 2: Determinar qué archivo usar como base
+        if misma_fecha:
+            # MISMA FECHA: usar el archivo que el usuario cargó
+            archivo_base = layout_path
+            archivo_para_inv_final = None  # No necesitamos copiar Inv Final
+            print(f"  → Base: archivo que cargaste (misma fecha)")
+        else:
+            # FECHA DIFERENTE: usar el template de .sistema
+            template_path = Path(__file__).parent / 'Inventario_layout.xlsx'
+            archivo_base = str(template_path)
+            archivo_para_inv_final = layout_path  # Copiar Inv Final de este archivo
+            print(f"  → Base: Inventario_layout.xlsx (template de .sistema)")
+            print(f"  → Inv Final se copiará desde: {Path(layout_path).name}")
+
+        # Cargar el archivo base
+        wb_original = load_workbook(archivo_base, data_only=False, keep_vba=False)
         ws_original = wb_original.active
 
-        # Cargar también con data_only para intentar obtener valores calculados de las fórmulas
-        wb_valores = load_workbook(layout_path, data_only=True, keep_vba=False)
+        # SIEMPRE cargar valores del archivo base (template o archivo mismo)
+        wb_valores = load_workbook(archivo_base, data_only=True, keep_vba=False)
         ws_valores = wb_valores.active
 
+        # Si es FECHA DIFERENTE, cargar ADICIONAL el archivo anterior para copiar Inv Final
+        wb_inv_final_anterior = None
+        ws_inv_final_anterior = None
+        if archivo_para_inv_final:
+            wb_inv_final_anterior = load_workbook(archivo_para_inv_final, data_only=True, keep_vba=False)
+            ws_inv_final_anterior = wb_inv_final_anterior.active
+
         # Crear workbook nuevo para resultado final
-        wb = load_workbook(layout_path, data_only=False, keep_vba=False)
+        wb = load_workbook(archivo_base, data_only=False, keep_vba=False)
         ws = wb.active
 
-        # PASO CRÍTICO: Copiar COLUMNA E (Inv Final) del archivo ORIGEN → COLUMNA B (Inv Inicial) del archivo NUEVO
-        # Columna E = Inv Final del archivo anterior (origen)
-        # Columna B = Inv Inicial del archivo nuevo (destino)
-        print("  → Copiando Columna E (Inv Final del archivo anterior) → Columna B (Inv Inicial del archivo nuevo)...")
-
+        # PASO CRÍTICO: Copiar COLUMNA E → COLUMNA B solo si es FECHA DIFERENTE
         COL_INV_FINAL = 5   # Columna E (5 en índice de Excel)
         COL_INV_INICIAL = 2  # Columna B (2 en índice de Excel)
 
-        valores_copiados = 0
-        for row_idx in range(2, ws_valores.max_row + 1):  # Empezar desde fila 2 (saltar encabezado)
-            # Leer el VALOR calculado de columna E (Inv Final) del archivo ANTERIOR
-            cell_inv_final_origen = ws_valores.cell(row=row_idx, column=COL_INV_FINAL)
-            valor_final = cell_inv_final_origen.value
+        if not misma_fecha and ws_inv_final_anterior:
+            # Copiar COLUMNA E (Inv Final) del archivo ORIGEN → COLUMNA B (Inv Inicial) del archivo NUEVO
+            # Columna E = Inv Final del archivo anterior (origen)
+            # Columna B = Inv Inicial del archivo nuevo (destino)
+            print("  → Copiando Columna E (Inv Final del archivo anterior) → Columna B (Inv Inicial del archivo nuevo)...")
 
-            # Si hay un valor numérico, copiarlo a columna B (Inv Inicial) del archivo NUEVO
-            if valor_final is not None and isinstance(valor_final, (int, float)):
-                cell_inv_inicial_destino = ws.cell(row=row_idx, column=COL_INV_INICIAL)
-                cell_inv_inicial_destino.value = valor_final  # VALOR numérico, NO fórmula
-                valores_copiados += 1
+            valores_copiados = 0
+            for row_idx in range(2, ws_inv_final_anterior.max_row + 1):  # Empezar desde fila 2 (saltar encabezado)
+                # Leer el VALOR calculado de columna E (Inv Final) del archivo ANTERIOR
+                cell_inv_final_origen = ws_inv_final_anterior.cell(row=row_idx, column=COL_INV_FINAL)
+                valor_final = cell_inv_final_origen.value
 
-        print(f"  ✓ {valores_copiados} valores copiados: Columna E (Inv Final anterior) → Columna B (Inv Inicial nuevo)")
+                # Si hay un valor numérico, copiarlo a columna B (Inv Inicial) del archivo NUEVO
+                if valor_final is not None and isinstance(valor_final, (int, float)):
+                    cell_inv_inicial_destino = ws.cell(row=row_idx, column=COL_INV_INICIAL)
+                    cell_inv_inicial_destino.value = valor_final  # VALOR numérico, NO fórmula
+                    valores_copiados += 1
+
+            print(f"  ✓ {valores_copiados} valores copiados: Columna E (Inv Final anterior) → Columna B (Inv Inicial nuevo)")
+        else:
+            # MISMA FECHA: NO copiar, mantener el Inv Inicial actual
+            print("  ✓ Inv Inicial NO modificado (misma fecha de inventario, continuación de carga)")
 
         # Identificar columnas que NO deben ser sobrescritas durante la conversión
         print("  → Identificando columnas a preservar...")
@@ -726,6 +817,8 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
         # Cerrar workbooks auxiliares
         wb_original.close()
         wb_valores.close()
+        if wb_inv_final_anterior:
+            wb_inv_final_anterior.close()
 
         # Agrupar por categoría y sumar cantidades finales
         cantidades_por_categoria = df_final.groupby('Categoria')['Cantidad_Final'].sum()
@@ -794,7 +887,13 @@ def actualizar_inventario_layout(df_final: pd.DataFrame, layout_path: str = 'Inv
         save_path = output_path if output_path else layout_path
         wb.save(save_path)
         print(f"\n+ Inventario actualizado exitosamente: '{save_path}'")
-        print("  ✓ Columna E (Inv Final anterior) → Columna B (Inv Inicial nuevo) - solo valores")
+
+        if misma_fecha:
+            print("  ✓ MISMA FECHA: Se agregaron movimientos al inventario existente")
+            print("  ✓ Inv Inicial NO modificado (continuación de carga de la misma fecha)")
+        else:
+            print("  ✓ FECHA DIFERENTE: Columna E (Inv Final anterior) → Columna B (Inv Inicial nuevo)")
+
         print("  ✓ Se preservaron todos los bordes, colores y estilos del Excel")
         print("  ✓ Columna E (Inv Final) mantiene fórmulas para recalcular automáticamente")
 
