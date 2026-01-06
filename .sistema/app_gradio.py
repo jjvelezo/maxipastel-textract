@@ -132,12 +132,44 @@ def process_file(files, tipo_operacion, inventario_inicial, fecha_inventario):
                     status_msg += "  ⚠️ No se encontraron tablas\n\n"
                     continue
 
-                # Seleccionar la tabla más grande
+                # Filtrar y seleccionar la tabla correcta
                 if len(dataframes) > 1:
-                    tablas_grandes = [df for df in dataframes if len(df) >= 5]
-                    df_raw = max(tablas_grandes if tablas_grandes else dataframes, key=lambda df: len(df))
+                    # PASO 1: Filtrar tablas de resumen financiero
+                    tablas_no_resumen = []
+                    for df in dataframes:
+                        todas_columnas_str = ' '.join([str(col).lower() for col in df.columns])
+                        todas_filas_str = ' '.join([str(val).lower() for row in df.values for val in row if pd.notna(val)])
+                        palabras_resumen = ['sub total', 'subtotal', 'descuento', 'iva', 'ibua', 'vr. total', 'total factura']
+                        es_resumen = any(palabra in todas_columnas_str or palabra in todas_filas_str for palabra in palabras_resumen)
+                        if not es_resumen:
+                            tablas_no_resumen.append(df)
+
+                    # PASO 2: Priorizar tablas con columnas de productos
+                    tablas_con_productos = []
+                    for df in (tablas_no_resumen if tablas_no_resumen else dataframes):
+                        columnas_str = ' '.join([str(col).lower() for col in df.columns])
+                        palabras_productos = ['cantidad', 'descripcion', 'descripción', 'referencia', 'producto', 'unidad']
+                        tiene_columna_producto = any(palabra in columnas_str for palabra in palabras_productos)
+                        if tiene_columna_producto:
+                            tablas_con_productos.append(df)
+
+                    # PASO 3: Seleccionar la mejor tabla
+                    if tablas_con_productos:
+                        df_raw = max(tablas_con_productos, key=lambda df: len(df))
+                    elif tablas_no_resumen:
+                        df_raw = max(tablas_no_resumen, key=lambda df: len(df))
+                    else:
+                        df_raw = max(dataframes, key=lambda df: len(df))
                 else:
+                    # Solo hay 1 tabla, verificar si es un resumen financiero
                     df_raw = dataframes[0]
+                    todas_columnas_str = ' '.join([str(col).lower() for col in df_raw.columns])
+                    todas_filas_str = ' '.join([str(val).lower() for row in df_raw.values for val in row if pd.notna(val)])
+                    palabras_resumen = ['sub total', 'subtotal', 'descuento', 'iva', 'ibua', 'vr. total', 'total factura']
+                    es_resumen = any(palabra in todas_columnas_str or palabra in todas_filas_str for palabra in palabras_resumen)
+                    if es_resumen:
+                        status_msg += "  ⚠️ Solo se detectó tabla de resumen financiero, no productos\n\n"
+                        continue
 
                 csv_path = Path(__file__).parent / 'datos_raw.csv'
                 df_raw.to_csv(csv_path, index=False, encoding='utf-8-sig')

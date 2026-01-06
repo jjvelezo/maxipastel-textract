@@ -240,14 +240,24 @@ def limpiar_datos_entrada(df: pd.DataFrame) -> pd.DataFrame:
     primera_col = df_clean.columns[0]
 
     # Intentar convertir la primera columna a numérico y ver cuántos valores son válidos
+    # IMPORTANTE: Filtrar filas con valores no vacíos ANTES de calcular el porcentaje
     try:
         primera_col_data = df_clean[primera_col]
         if primera_col_data is None or len(primera_col_data) == 0:
             print(f"  [ADVERTENCIA] Primera columna '{primera_col}' esta vacia")
             porcentaje_numerico = 0
         else:
-            valores_numericos = pd.to_numeric(primera_col_data, errors='coerce')
-            porcentaje_numerico = valores_numericos.notna().sum() / len(df_clean) if len(df_clean) > 0 else 0
+            # Filtrar valores no vacíos (excluir NaN y strings vacíos)
+            valores_no_vacios = primera_col_data.dropna()
+            valores_no_vacios = valores_no_vacios[valores_no_vacios.astype(str).str.strip() != '']
+
+            if len(valores_no_vacios) == 0:
+                porcentaje_numerico = 0
+            else:
+                # Convertir a numérico solo los valores no vacíos
+                valores_numericos = pd.to_numeric(valores_no_vacios, errors='coerce')
+                # Calcular porcentaje sobre valores no vacíos (no sobre todo el DataFrame)
+                porcentaje_numerico = valores_numericos.notna().sum() / len(valores_no_vacios)
     except Exception as e:
         print(f"  [ERROR] Error al analizar primera columna: {e}")
         print(f"  [ERROR] Columnas: {list(df_clean.columns)}")
@@ -1063,23 +1073,97 @@ if __name__ == "__main__":
 
             print(f"\nSe encontraron {len(dataframes)} tabla(s)")
 
-            # Si hay múltiples tablas, filtrar y seleccionar la más grande
-            # (ignorar tablas pequeñas que son encabezados)
-            if len(dataframes) > 1:
-                print("Filtrando tablas (ignorando encabezados)...")
-                # Filtrar tablas con al menos 5 filas (probablemente son tablas de productos)
-                tablas_grandes = [df for df in dataframes if len(df) >= 5]
+            # DEBUG: Mostrar información de todas las tablas detectadas
+            if len(dataframes) > 0:
+                print("\n[DEBUG] Tablas detectadas por AWS Textract:")
+                for idx, df in enumerate(dataframes):
+                    print(f"  Tabla {idx + 1}: {df.shape[0]} filas x {df.shape[1]} columnas")
+                    print(f"    Columnas: {list(df.columns)}")
+                    if len(df) > 0:
+                        print(f"    Primera fila: {list(df.iloc[0].values)}")
+                    print()
 
-                if tablas_grandes:
-                    # Tomar la tabla más grande
-                    df_raw = max(tablas_grandes, key=lambda df: len(df))
-                    print(f"Tabla seleccionada: {df_raw.shape[0]} filas x {df_raw.shape[1]} columnas")
+            # Si hay múltiples tablas, filtrar y seleccionar la correcta
+            if len(dataframes) > 1:
+                print("Filtrando tablas (ignorando encabezados y resúmenes financieros)...")
+
+                # PASO 1: Filtrar tablas de resumen financiero (SUB TOTAL, DESCUENTO, IVA, etc.)
+                tablas_no_resumen = []
+                for df in dataframes:
+                    # Verificar si la tabla contiene palabras clave de resumen financiero
+                    es_resumen = False
+                    todas_columnas_str = ' '.join([str(col).lower() for col in df.columns])
+                    todas_filas_str = ' '.join([str(val).lower() for row in df.values for val in row if pd.notna(val)])
+
+                    palabras_resumen = ['sub total', 'subtotal', 'descuento', 'iva', 'ibua', 'vr. total', 'total factura']
+                    for palabra in palabras_resumen:
+                        if palabra in todas_columnas_str or palabra in todas_filas_str:
+                            es_resumen = True
+                            break
+
+                    if not es_resumen:
+                        tablas_no_resumen.append(df)
+                    else:
+                        print(f"  - Descartada tabla de resumen financiero ({df.shape[0]} filas)")
+
+                # Si después de filtrar no queda nada, usar todas
+                if not tablas_no_resumen:
+                    tablas_no_resumen = dataframes
+
+                # PASO 2: Priorizar tablas que tengan columnas de productos (CANTIDAD, DESCRIPCIÓN, REFERENCIA)
+                tablas_con_productos = []
+                for df in tablas_no_resumen:
+                    columnas_str = ' '.join([str(col).lower() for col in df.columns])
+                    palabras_productos = ['cantidad', 'descripcion', 'descripción', 'referencia', 'producto', 'unidad']
+
+                    tiene_columna_producto = False
+                    for palabra in palabras_productos:
+                        if palabra in columnas_str:
+                            tiene_columna_producto = True
+                            break
+
+                    if tiene_columna_producto:
+                        tablas_con_productos.append(df)
+                        print(f"  + Tabla con columnas de productos detectada ({df.shape[0]} filas x {df.shape[1]} columnas)")
+
+                # PASO 3: Seleccionar la tabla correcta
+                if tablas_con_productos:
+                    # Usar la tabla más grande entre las que tienen columnas de productos
+                    df_raw = max(tablas_con_productos, key=lambda df: len(df))
+                    print(f"Tabla seleccionada: {df_raw.shape[0]} filas x {df_raw.shape[1]} columnas (con columnas de productos)")
+                elif tablas_no_resumen:
+                    # Si no hay tablas con columnas de productos, usar la más grande que no sea resumen
+                    df_raw = max(tablas_no_resumen, key=lambda df: len(df))
+                    print(f"Tabla seleccionada: {df_raw.shape[0]} filas x {df_raw.shape[1]} columnas (sin columnas de productos)")
                 else:
-                    # Si no hay tablas grandes, tomar la más grande disponible
+                    # Último recurso: usar la tabla más grande disponible
                     df_raw = max(dataframes, key=lambda df: len(df))
                     print(f"Tabla seleccionada (sin filtro): {df_raw.shape[0]} filas x {df_raw.shape[1]} columnas")
             else:
+                # Solo hay 1 tabla, verificar si es un resumen financiero
                 df_raw = dataframes[0]
+
+                # Verificar si es tabla de resumen financiero
+                todas_columnas_str = ' '.join([str(col).lower() for col in df_raw.columns])
+                todas_filas_str = ' '.join([str(val).lower() for row in df_raw.values for val in row if pd.notna(val)])
+
+                palabras_resumen = ['sub total', 'subtotal', 'descuento', 'iva', 'ibua', 'vr. total', 'total factura']
+                es_resumen = False
+                for palabra in palabras_resumen:
+                    if palabra in todas_columnas_str or palabra in todas_filas_str:
+                        es_resumen = True
+                        break
+
+                if es_resumen:
+                    print("\n[ERROR CRÍTICO] AWS Textract solo detectó la tabla de resumen financiero, no la tabla de productos.")
+                    print("Esto puede deberse a:")
+                    print("  1. El PDF tiene un formato complejo que Textract no puede interpretar correctamente")
+                    print("  2. La tabla de productos está en un formato no estándar (imagen, texto superpuesto, etc.)")
+                    print("\nPor favor, intenta:")
+                    print("  - Usar un PDF diferente o más simple")
+                    print("  - Convertir el PDF a imagen (PNG/JPG) antes de procesar")
+                    print("  - Verificar que el PDF no esté protegido o cifrado")
+                    sys.exit(1)
 
             # Guardar CSV para reutilización
             df_raw.to_csv('datos_raw.csv', index=False, encoding='utf-8-sig')
