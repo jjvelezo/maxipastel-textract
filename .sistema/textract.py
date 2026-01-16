@@ -1055,7 +1055,7 @@ if __name__ == "__main__":
 
     USAR_AWS = config.get('USAR_AWS', False)
     #image_path = "WhatsApp Image 2025-11-04 at 10.35.29 PM (1).jpeg"
-    image_path = "1 DE NOVIEMBRE 2025 (1).pdf"
+    image_path = r"C:\Users\Juan Jose\Downloads\ENERO 6.pdf"
     csv_path = "datos_raw.csv"
     # =======================================================
 
@@ -1087,32 +1087,9 @@ if __name__ == "__main__":
             if len(dataframes) > 1:
                 print("Filtrando tablas (ignorando encabezados y resúmenes financieros)...")
 
-                # PASO 1: Filtrar tablas de resumen financiero (SUB TOTAL, DESCUENTO, IVA, etc.)
-                tablas_no_resumen = []
-                for df in dataframes:
-                    # Verificar si la tabla contiene palabras clave de resumen financiero
-                    es_resumen = False
-                    todas_columnas_str = ' '.join([str(col).lower() for col in df.columns])
-                    todas_filas_str = ' '.join([str(val).lower() for row in df.values for val in row if pd.notna(val)])
-
-                    palabras_resumen = ['sub total', 'subtotal', 'descuento', 'iva', 'ibua', 'vr. total', 'total factura']
-                    for palabra in palabras_resumen:
-                        if palabra in todas_columnas_str or palabra in todas_filas_str:
-                            es_resumen = True
-                            break
-
-                    if not es_resumen:
-                        tablas_no_resumen.append(df)
-                    else:
-                        print(f"  - Descartada tabla de resumen financiero ({df.shape[0]} filas)")
-
-                # Si después de filtrar no queda nada, usar todas
-                if not tablas_no_resumen:
-                    tablas_no_resumen = dataframes
-
-                # PASO 2: Priorizar tablas que tengan columnas de productos (CANTIDAD, DESCRIPCIÓN, REFERENCIA)
+                # PASO 1: Buscar tablas con columnas de productos
                 tablas_con_productos = []
-                for df in tablas_no_resumen:
+                for df in dataframes:
                     columnas_str = ' '.join([str(col).lower() for col in df.columns])
                     palabras_productos = ['cantidad', 'descripcion', 'descripción', 'referencia', 'producto', 'unidad']
 
@@ -1126,7 +1103,26 @@ if __name__ == "__main__":
                         tablas_con_productos.append(df)
                         print(f"  + Tabla con columnas de productos detectada ({df.shape[0]} filas x {df.shape[1]} columnas)")
 
-                # PASO 3: Seleccionar la tabla correcta
+                # PASO 2: Filtrar solo resúmenes financieros (que NO tengan columnas de productos)
+                tablas_no_resumen = []
+                for df in dataframes:
+                    columnas_str = ' '.join([str(col).lower() for col in df.columns])
+                    todas_filas_str = ' '.join([str(val).lower() for row in df.values for val in row if pd.notna(val)])
+
+                    # Verificar si tiene columnas de productos
+                    palabras_productos = ['cantidad', 'descripcion', 'descripción', 'referencia', 'producto', 'unidad']
+                    tiene_columna_producto = any(palabra in columnas_str for palabra in palabras_productos)
+
+                    # Solo es resumen si NO tiene columnas de productos
+                    palabras_resumen = ['sub total', 'subtotal', 'total factura', 'total a pagar']
+                    es_solo_resumen = (not tiene_columna_producto) and any(palabra in columnas_str or palabra in todas_filas_str for palabra in palabras_resumen)
+
+                    if es_solo_resumen:
+                        print(f"  - Descartada tabla de resumen financiero ({df.shape[0]} filas)")
+                    else:
+                        tablas_no_resumen.append(df)
+
+                # PASO 3: Seleccionar la mejor tabla (priorizar tablas con productos)
                 if tablas_con_productos:
                     # Usar la tabla más grande entre las que tienen columnas de productos
                     df_raw = max(tablas_con_productos, key=lambda df: len(df))

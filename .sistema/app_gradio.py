@@ -134,26 +134,33 @@ def process_file(files, tipo_operacion, inventario_inicial, fecha_inventario):
 
                 # Filtrar y seleccionar la tabla correcta
                 if len(dataframes) > 1:
-                    # PASO 1: Filtrar tablas de resumen financiero
-                    tablas_no_resumen = []
-                    for df in dataframes:
-                        todas_columnas_str = ' '.join([str(col).lower() for col in df.columns])
-                        todas_filas_str = ' '.join([str(val).lower() for row in df.values for val in row if pd.notna(val)])
-                        palabras_resumen = ['sub total', 'subtotal', 'descuento', 'iva', 'ibua', 'vr. total', 'total factura']
-                        es_resumen = any(palabra in todas_columnas_str or palabra in todas_filas_str for palabra in palabras_resumen)
-                        if not es_resumen:
-                            tablas_no_resumen.append(df)
-
-                    # PASO 2: Priorizar tablas con columnas de productos
+                    # PASO 1: Buscar tablas con columnas de productos
                     tablas_con_productos = []
-                    for df in (tablas_no_resumen if tablas_no_resumen else dataframes):
+                    for df in dataframes:
                         columnas_str = ' '.join([str(col).lower() for col in df.columns])
                         palabras_productos = ['cantidad', 'descripcion', 'descripción', 'referencia', 'producto', 'unidad']
                         tiene_columna_producto = any(palabra in columnas_str for palabra in palabras_productos)
                         if tiene_columna_producto:
                             tablas_con_productos.append(df)
 
-                    # PASO 3: Seleccionar la mejor tabla
+                    # PASO 2: Filtrar solo resúmenes financieros (que NO tengan columnas de productos)
+                    tablas_no_resumen = []
+                    for df in dataframes:
+                        columnas_str = ' '.join([str(col).lower() for col in df.columns])
+                        todas_filas_str = ' '.join([str(val).lower() for row in df.values for val in row if pd.notna(val)])
+
+                        # Verificar si tiene columnas de productos
+                        palabras_productos = ['cantidad', 'descripcion', 'descripción', 'referencia', 'producto', 'unidad']
+                        tiene_columna_producto = any(palabra in columnas_str for palabra in palabras_productos)
+
+                        # Solo es resumen si NO tiene columnas de productos
+                        palabras_resumen = ['sub total', 'subtotal', 'total factura', 'total a pagar']
+                        es_solo_resumen = (not tiene_columna_producto) and any(palabra in columnas_str or palabra in todas_filas_str for palabra in palabras_resumen)
+
+                        if not es_solo_resumen:
+                            tablas_no_resumen.append(df)
+
+                    # PASO 3: Seleccionar la mejor tabla (priorizar tablas con productos)
                     if tablas_con_productos:
                         df_raw = max(tablas_con_productos, key=lambda df: len(df))
                     elif tablas_no_resumen:
@@ -185,11 +192,21 @@ def process_file(files, tipo_operacion, inventario_inicial, fecha_inventario):
             df_clean = limpiar_datos(df_raw, tipo_operacion=tipo_operacion.lower())
             status_msg += f"  ✓ {len(df_clean)} productos encontrados\n"
 
+            if len(df_clean) == 0:
+                status_msg += "  ⚠️ No se encontraron productos en este archivo\n\n"
+                continue
+
             # Validar y multiplicar
             status_msg += "  → Validando productos...\n"
             config_path = Path(__file__).parent / 'config.json'
             df_final = validar_y_multiplicar(df_clean, str(config_path), tipo_operacion=tipo_operacion.lower())
-            status_msg += f"  ✓ {len(df_final)} productos validados\n\n"
+            status_msg += f"  ✓ {len(df_final)} productos validados\n"
+
+            if len(df_final) == 0:
+                status_msg += "  ⚠️ Ningún producto validado (no coinciden con config.json)\n\n"
+                continue
+
+            status_msg += "\n"
 
             all_results.append(df_final)
 
@@ -204,6 +221,16 @@ def process_file(files, tipo_operacion, inventario_inicial, fecha_inventario):
             )
 
         df_combined = pd.concat(all_results, ignore_index=True)
+
+        # Verificar que el DataFrame tenga datos y la columna Categoria
+        if df_combined.empty or 'Categoria' not in df_combined.columns:
+            return (
+                status_msg + "\n❌ No se encontraron productos válidos en los archivos procesados",
+                None,
+                "0",
+                "0",
+                "0"
+            )
 
         # Manejar duplicados según tipo de operación
         productos_antes = len(df_combined)
